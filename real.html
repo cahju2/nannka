@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Three.js 大深度潜水リバーの無限草原</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #c4e7fe; }
+        canvas { display: block; }
+        #info {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #223311; background: rgba(255,255,255,0.85); padding: 25px 45px;
+            font-family: sans-serif; border-radius: 10px; text-align: center;
+            cursor: pointer; user-select: none; border: 2px solid #0055ff;
+            box-shadow: 0 0 20px rgba(255,255,255,0.5);
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h2 style="margin:0 0 10px 0; color:#0055ff;">最大水深20m超！深淵の無限世界</h2>
+        <p style="margin:0; font-weight:bold;">画面をクリックしてスタート</p>
+        <p style="font-size:12px; color:#555; margin-top:10px;">
+            移動：W, A, S, D ／ 視点：マウス ／ ジャンプ：SPACE<br>
+            風にそよぐ草、波打つ水面、太陽光と影のコントラスト。よりリアルな質感に強化しました。
+        </p>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+
+        // --- 1. シーン・カメラ・霧設定 ---
+        const scene = new THREE.Scene();
+        const skyColor = '#bfe3fb';
+        const horizonColor = '#eaf6ff';
+        scene.background = new THREE.Color(skyColor);
+        // いったん霧は切って、全体の見え方を素直に確認する
+        scene.fog = null;
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 140);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.05;
+        renderer.shadowMap.enabled = false;
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        document.body.appendChild(renderer.domElement);
+
+        // コントロール
+        const controls = new PointerLockControls(camera, document.body);
+        const info = document.getElementById('info');
+        info.addEventListener('click', () => controls.lock());
+        controls.addEventListener('lock', () => info.style.display = 'none');
+        controls.addEventListener('unlock', () => info.style.display = 'block');
+
+        // --- ライティング（物理的な光の積み重ね） ---
+        // 1) 空 - 地面のバウンスライトをヘミスフィアで表現。これだけで陰影が一気に自然になる
+        // ground側の色を明るめにし、強度も上げて「影=真っ黒」にならないようにする
+        const hemiLight = new THREE.HemisphereLight('#bfe3fb', '#b8c989', 1.45);
+        scene.add(hemiLight);
+
+        // 2) 太陽光（指向性ライト + シャドウ）。色温度をわずかに暖色に振って正午〜午後の質感に
+        const SUN_OFFSET = new THREE.Vector3(45, 70, -25); // 太陽の相対位置（方向）。これは固定し、平行移動のみ行う
+        const sunLight = new THREE.DirectionalLight('#fff3d6', 2.0);
+        sunLight.position.copy(SUN_OFFSET);
+        sunLight.castShadow = false;
+        scene.add(sunLight);
+        // 影のターゲットをプレイヤー追従にして、無限地形でも常に範囲内に太陽影を保つ
+        const sunTarget = new THREE.Object3D();
+        scene.add(sunTarget);
+        sunLight.target = sunTarget;
+
+        // 3) 環境光：日陰になった面が完全な黒に落ち込まないよう、十分な底上げをする
+        scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+
+        // --- 2. 物理演算設定 ---
+        const keys = { w: false, a: false, s: false, d: false, space: false };
+        let velocityY = 0;
+        let isGrounded = true;
+        const GRAVITY = 26.0;     
+        const JUMP_FORCE = 10.5;  
+        const PLAYER_HEIGHT = 2.3;
+
+        window.addEventListener('keydown', (e) => {
+            const k = e.key.toLowerCase();
+            if (k === 'w') keys.w = true; if (k === 's') keys.s = true;
+            if (k === 'a') keys.a = true; if (k === 'd') keys.d = true;
+            if (e.code === 'Space') keys.space = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            const k = e.key.toLowerCase();
+            if (k === 'w') keys.w = false; if (k === 's') keys.s = false;
+            if (k === 'a') keys.a = false; if (k === 'd') keys.d = false;
+            if (e.code === 'Space') keys.space = false;
+        });
+
+        // --- 3. 【限界突破！最大水深20m超の地形数式】 ---
+        const WATER_LEVEL = -0.5; 
+
+        function hash2(x, z) {
+            const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453123;
+            return s - Math.floor(s);
+        }
+
+        function smoothNoise(x, z) {
+            const xi = Math.floor(x);
+            const zi = Math.floor(z);
+            const xf = x - xi;
+            const zf = z - zi;
+            const u = xf * xf * (3.0 - 2.0 * xf);
+            const v = zf * zf * (3.0 - 2.0 * zf);
+            const n00 = hash2(xi, zi);
+            const n10 = hash2(xi + 1, zi);
+            const n01 = hash2(xi, zi + 1);
+            const n11 = hash2(xi + 1, zi + 1);
+            return THREE.MathUtils.lerp(
+                THREE.MathUtils.lerp(n00, n10, u),
+                THREE.MathUtils.lerp(n01, n11, u),
+                v
+            );
+        }
+
+        function fbm(x, z) {
+            let value = 0;
+            let amplitude = 0.5;
+            let frequency = 1;
+            for (let i = 0; i < 4; i++) {
+                value += smoothNoise(x * frequency, z * frequency) * amplitude;
+                frequency *= 2;
+                amplitude *= 0.5;
+            }
+            return value;
+        }
+
+        function getTerrainHeight(x, z) {
+            const terrainBase = fbm(x * 0.015, z * 0.015) * 8.0 - 2.2;
+            const ridges = Math.abs(fbm(x * 0.05 + 19.2, z * 0.05 - 7.7) * 2.0 - 1.0) * 2.4;
+            const hills = Math.sin(x * 0.028) * Math.cos(z * 0.026) * 2.4;
+            const riverCenter = Math.sin(x * 0.010 + fbm(x * 0.004, z * 0.004) * 1.8) * 15.0;
+            const distanceToRiver = Math.abs(z - riverCenter);
+            const riverWidth = 12.5 + fbm(x * 0.01, z * 0.01) * 5.0;
+
+            let height = terrainBase + ridges + hills;
+            if (distanceToRiver < riverWidth) {
+                const t = 1 - distanceToRiver / riverWidth;
+                const riverBed = WATER_LEVEL - 11.5 - fbm(x * 0.03 + 2.0, z * 0.03 - 4.0) * 5.8;
+                height = THREE.MathUtils.lerp(height, riverBed, Math.pow(t, 1.7));
+            }
+
+            return height;
+        }
+
+        // --- 4. マテリアル・テクスチャ設定 ---
+        // 草テクスチャ：根元を暗く（AO風）、先端をハイライトに、葉脈の濃淡ノイズを追加してリアル感を出す
+        function createGrassTexture() {
+            const canvas = document.createElement('canvas'); canvas.width = 96; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const blades = [
+                { x: 16, tilt: -16, width: 6, height: 123, colorA: '#4c9c2f', colorB: '#d6ff8f' },
+                { x: 29, tilt: -8,  width: 5, height: 127, colorA: '#56ab35', colorB: '#e1ff9d' },
+                { x: 44, tilt: 6,   width: 5, height: 124, colorA: '#4fa132', colorB: '#d8ff92' },
+                { x: 61, tilt: 14,  width: 5, height: 119, colorA: '#4a9830', colorB: '#d1ff87' },
+                { x: 77, tilt: 20,  width: 4, height: 112, colorA: '#55ae38', colorB: '#edffaf' },
+                { x: 90, tilt: -2,  width: 4, height: 106, colorA: '#4ea332', colorB: '#dcff97' }
+            ];
+
+            for (const blade of blades) {
+                const grad = ctx.createLinearGradient(0, blade.height, 0, 0);
+                grad.addColorStop(0, blade.colorA);
+                grad.addColorStop(0.2, '#69cd3d');
+                grad.addColorStop(0.62, '#b6fb74');
+                grad.addColorStop(1, blade.colorB);
+                ctx.fillStyle = grad;
+
+                ctx.save();
+                ctx.translate(blade.x, 0);
+                ctx.rotate(blade.tilt * Math.PI / 180);
+                ctx.beginPath();
+                ctx.moveTo(0, blade.height);
+                ctx.quadraticCurveTo(-blade.width * 1.25, blade.height * 0.56, -blade.width * 0.18, 0);
+                ctx.quadraticCurveTo(blade.width * 0.22, blade.height * 0.06, blade.width * 0.85, blade.height * 0.72);
+                ctx.quadraticCurveTo(blade.width * 0.12, blade.height * 0.94, 0, blade.height);
+                ctx.fill();
+
+                ctx.globalAlpha = 0.42;
+                ctx.strokeStyle = '#f7ffd8';
+                ctx.lineWidth = 0.9;
+                ctx.beginPath();
+                ctx.moveTo(0, blade.height * 0.95);
+                ctx.quadraticCurveTo(-blade.width * 0.12, blade.height * 0.5, 0, 8);
+                ctx.stroke();
+                ctx.globalAlpha = 1.0;
+                ctx.restore();
+            }
+
+            // 根元のAO（接地部の影）
+            const aoGrad = ctx.createRadialGradient(48, 126, 3, 48, 126, 30);
+            aoGrad.addColorStop(0, 'rgba(60,120,36,0.08)');
+            aoGrad.addColorStop(1, 'rgba(12,30,8,0)');
+            ctx.fillStyle = aoGrad;
+            ctx.beginPath(); ctx.rect(0, 98, 96, 30); ctx.fill();
+
+            // 粒状ノイズで質感付け
+            for (let i = 0; i < 260; i++) {
+                const nx = Math.random() * 96, ny = Math.random() * 128;
+                ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.11)' : 'rgba(50,130,26,0.025)';
+                ctx.fillRect(nx, ny, 1.4, 1.4);
+            }
+            return new THREE.CanvasTexture(canvas);
+        }
+        const grassTexture = createGrassTexture();
+        grassTexture.colorSpace = THREE.SRGBColorSpace;
+        const grassMat = new THREE.MeshStandardMaterial({
+            map: grassTexture, alphaTest: 0.18, side: THREE.DoubleSide,
+            roughness: 0.9, metalness: 0.0,
+            vertexColors: true, // インスタンスごとの色バリエーション用
+            emissive: new THREE.Color('#6ea83f'),
+            emissiveIntensity: 0.32
+        });
+
+        // 草の風揺れ：根元は固定、先端ほど大きく揺れる二乗カーブ＋個体ごとの揺れ位相をずらして自然な「群れ」感を出す
+        const sharedUniforms = { uTime: { value: 0 } };
+        grassMat.onBeforeCompile = (shader) => {
+            shader.uniforms.uTime = sharedUniforms.uTime;
+            shader.vertexShader = `uniform float uTime;\n` + shader.vertexShader;
+            shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>',
+                `#include <begin_vertex>
+                float bladeH = position.y;
+                // instanceMatrixの平行移動成分を疑似ランダムシードとして使い、株ごとに揺れの位相とスピードをずらす
+                #ifdef USE_INSTANCING
+                    float seed = fract(sin(dot(instanceMatrix[3].xz, vec2(12.9898, 78.233))) * 43758.5453);
+                #else
+                    float seed = 0.0;
+                #endif
+                float phase = seed * 6.2831;
+                float speed = 1.6 + seed * 0.9;
+                float windStrength = 0.10 + seed * 0.05;
+                float bend = bladeH * bladeH; // 根元0、先端ほど強く曲がる
+                float sway = sin(uTime * speed + phase + position.x * 1.3) * windStrength;
+                float gust = sin(uTime * 0.5 + phase * 0.3) * 0.04; // ゆっくりした突風の波
+                transformed.x += (sway + gust) * bend;
+                transformed.z += cos(uTime * speed * 0.8 + phase) * windStrength * 0.5 * bend;`
+            );
+        };
+        // 葉を1枚から2枚のクロスプレーンにして、どの角度から見ても薄っぺらく見えないようにする
+        const grassGeo = new THREE.PlaneGeometry(0.18, 1.42, 1, 4);
+        grassGeo.translate(0, 0.5, 0);
+        const grassGeo2 = grassGeo.clone();
+        grassGeo2.rotateY(Math.PI / 2);
+        const grassGeoShort = new THREE.PlaneGeometry(0.16, 0.78, 1, 3);
+        grassGeoShort.translate(0, 0.5, 0);
+        const grassGeoShort2 = grassGeoShort.clone();
+        grassGeoShort2.rotateY(Math.PI / 2);
+        const trunkGeo = new THREE.CylinderGeometry(0.12, 0.18, 2.4, 5);
+        trunkGeo.translate(0, 1.2, 0);
+        const branchGeo = new THREE.CylinderGeometry(0.035, 0.055, 0.8, 4);
+        const leafGeo = new THREE.IcosahedronGeometry(0.55, 0);
+        const trunkMat = new THREE.MeshStandardMaterial({ color: '#6a4a28', roughness: 1.0, metalness: 0.0 });
+        const branchMat = new THREE.MeshStandardMaterial({ color: '#5e4024', roughness: 1.0, metalness: 0.0 });
+        const leafMat = new THREE.MeshStandardMaterial({ color: '#60a63a', roughness: 0.98, metalness: 0.0, emissive: '#2c4f18', emissiveIntensity: 0.04 });
+
+        // 地面マテリアル：完全フラットなroughnessをやめ、湿った土・草の質感の起伏を出すため微弱なroughnessムラを追加
+        const floorMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.02 });
+
+        // 【リアル水面シェーダー】
+        // 「ガラスのような透過(transmission)」に強く依存すると、平らな板1枚では背景がそのまま映り込んで
+        // 不自然な縞模様になりやすいため、ここでは深度フェード（浅瀬は明るく・深いと暗く沈む）を主役にし、
+        // 反射・きらめきは控えめな補助効果として重ねる方針に変更。
+        const waterMat = new THREE.MeshPhysicalMaterial({
+            color: '#8acfe5',
+            transparent: true,
+            opacity: 0.92,
+            roughness: 0.03,
+            metalness: 0.0,
+            transmission: 0.32,
+            ior: 1.333,
+            thickness: 1.2,
+            side: THREE.DoubleSide,
+            envMapIntensity: 0.9,
+            clearcoat: 0.45,
+            clearcoatRoughness: 0.18,
+            depthWrite: false
+        });
+
+        const waterUniforms = {
+            uTime: { value: 0 },
+            uSunDir: { value: new THREE.Vector3(45, 70, -25).normalize() }
+        };
+
+        waterMat.onBeforeCompile = (shader) => {
+            Object.assign(shader.uniforms, waterUniforms);
+
+            // --- 頂点シェーダー：複数の正弦波を重ねた自然な波の起伏 ---
+            shader.vertexShader = `
+                uniform float uTime;
+                varying float vWaveHeight;
+                varying vec3 vWorldPos;
+                varying vec3 vWorldNormal;
+            ` + shader.vertexShader;
+
+            shader.vertexShader = shader.vertexShader.replace(
+                '#include <begin_vertex>',
+                `#include <begin_vertex>
+                vec4 wWorldPos4 = modelMatrix * vec4(transformed, 1.0);
+                float wx = wWorldPos4.x;
+                float wz = wWorldPos4.z;
+                float wave =
+                    sin(wx * 0.18 + uTime * 1.05) * 0.028 +
+                    sin(wz * 0.22 - uTime * 0.92) * 0.024 +
+                    sin((wx + wz) * 0.31 + uTime * 1.45) * 0.014 +
+                    sin((wx - wz) * 0.46 + uTime * 2.1) * 0.010;
+                transformed.y += wave;
+                vWaveHeight = wave;
+                vWorldPos = wWorldPos4.xyz;
+                vWorldNormal = normalize(mat3(modelMatrix) * objectNormal);`
+            );
+
+            // --- フラグメントシェーダー：フレネル反射 + きらめき（縞模様にならないよう複数周波数を混ぜる）---
+            shader.fragmentShader = `
+                uniform vec3 uSunDir;
+                varying float vWaveHeight;
+                varying vec3 vWorldPos;
+                varying vec3 vWorldNormal;
+            ` + shader.fragmentShader;
+
+            shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <dithering_fragment>',
+                `
+                vec3 viewDirW = normalize(cameraPosition - vWorldPos);
+                vec3 nrmW = normalize(vWorldNormal);
+
+                // フレネル：強すぎる反射は不自然な白帯になるため上限を抑える
+                float fresnel = pow(1.0 - max(dot(nrmW, viewDirW), 0.0), 5.0);
+                fresnel = clamp(fresnel, 0.0, 0.45);
+
+                // きらめき：1方向の単純な平面波だと縞模様になるので、複数の異なる周波数・角度を混ぜて
+                // 疑似ランダムなパターンに見せる
+                vec3 halfDir = normalize(uSunDir + viewDirW);
+                float spec = pow(max(dot(nrmW, halfDir), 0.0), 220.0);
+                float n1 = sin(vWorldPos.x * 7.3 + vWaveHeight * 30.0) * sin(vWorldPos.z * 5.1 - vWaveHeight * 22.0);
+                float n2 = sin(vWorldPos.x * 3.1 - vWorldPos.z * 4.7 + vWaveHeight * 18.0);
+                float sparkleMask = smoothstep(0.55, 0.95, n1 * 0.5 + n2 * 0.5 + 0.5);
+                float sparkle = spec * sparkleMask;
+
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.58, 0.86, 0.93), fresnel * 0.5);
+                gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.12, 0.46, 0.63), clamp(1.0 - vWorldPos.y * 0.02, 0.0, 1.0) * 0.18);
+                gl_FragColor.rgb += vec3(1.0, 1.0, 1.0) * sparkle * 0.45;
+
+                #include <dithering_fragment>`
+            );
+        };
+
+        // --- 5. チャンク無限管理システム ---
+        const CHUNK_SIZE = 28; // 水深が深くなったためチャンクサイズを少し拡大して安定化
+        const RENDER_DIST = 8; 
+        const chunks = new Map();
+        const dummy = new THREE.Object3D();
+
+        function generateChunk(cx, cz) {
+            const chunkId = `${cx},${cz}`;
+            if (chunks.has(chunkId)) return;
+
+            const chunkGroup = new THREE.Group();
+            let rngState = (cx * 374761393 + cz * 668265263) ^ 0x9e3779b9;
+            function rng() {
+                rngState = (rngState ^ (rngState << 13)) ^ (rngState >>> 17) ^ (rngState << 5);
+                return ((rngState >>> 0) % 1000000) / 1000000;
+            }
+
+            // ① 地面の生成（凄まじい高低差を滑らかに描くため16x16に分割強化）
+            const fGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, 16, 16);
+            fGeo.rotateX(-Math.PI / 2);
+            const pos = fGeo.attributes.position;
+            const colors = [];
+
+            for (let i = 0; i < pos.count; i++) {
+                const worldX = pos.getX(i) + cx * CHUNK_SIZE;
+                const worldZ = pos.getZ(i) + cz * CHUNK_SIZE;
+                const height = getTerrainHeight(worldX, worldZ);
+                pos.setY(i, height);
+
+                const depth = WATER_LEVEL - height;
+                // 自然な土・草のムラを出すための微小ノイズ（同じ座標なら毎回同じ値になる擬似ノイズ）
+                const noise = (smoothNoise(worldX * 0.35, worldZ * 0.35) * 0.08) - 0.04;
+
+                if (depth > 0) {
+                    // ★大深度グラデーション（奈落チューニング）
+                    // 0ｍ（浅瀬のきらめく砂）から、20ｍ（光の絶えたディープサファイア）へ無段階ブレンド。
+                    // 水際（depthが0に近い領域）の変化を緩やかにして、砂浜との境界線が硬く見えないようにする
+                    const depthFactor = Math.pow(Math.min(depth / 18.0, 1.0), 0.6);
+                    
+                    const sandR = 0.92, sandG = 0.84, sandB = 0.68; // 浅瀬の白い砂浜
+                    const deepR = 0.01, deepG = 0.06, deepB = 0.14; // 完全なる深淵のディープブルー（ほぼ闇）
+                    
+                    const r = THREE.MathUtils.lerp(sandR, deepR, depthFactor);
+                    const g = THREE.MathUtils.lerp(sandG, deepG, depthFactor);
+                    const b = THREE.MathUtils.lerp(sandB, deepB, depthFactor);
+                    colors.push(r + noise * 0.3, g + noise * 0.3, b + noise * 0.3);
+                } else if (height < WATER_LEVEL + 1.6) {
+                    const beachMix = Math.max(0, (height - (WATER_LEVEL - 0.15)) / 1.75);
+                    const sandR = THREE.MathUtils.lerp(0.98, 0.84, beachMix);
+                    const sandG = THREE.MathUtils.lerp(0.92, 0.80, beachMix);
+                    const sandB = THREE.MathUtils.lerp(0.74, 0.60, beachMix);
+                    colors.push(sandR + noise, sandG + noise * 0.8, sandB + noise * 0.5); // 陸上のビーチ
+                } else {
+                    const grassT = Math.min(1, Math.max(0, (height - WATER_LEVEL - 1.6) / 5.5));
+                    colors.push(0.20 + grassT * 0.08 + noise, 0.44 + grassT * 0.22 + noise * 1.2, 0.12 + grassT * 0.04 + noise * 0.6); // 大草原
+                }
+            }
+            fGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            fGeo.computeVertexNormals();
+            
+            const floorMesh = new THREE.Mesh(fGeo, floorMat);
+            floorMesh.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
+            floorMesh.receiveShadow = true;
+            floorMesh.castShadow = true;
+            chunkGroup.add(floorMesh);
+
+            // ② 【大深度リアル水面】波のうねりが見えるよう細かく分割
+            const wGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, 24, 24);
+            wGeo.rotateX(-Math.PI / 2);
+            const waterMesh = new THREE.Mesh(wGeo, waterMat);
+            waterMesh.position.set(cx * CHUNK_SIZE, WATER_LEVEL + 0.03, cz * CHUNK_SIZE);
+            waterMesh.receiveShadow = true;
+            waterMesh.renderOrder = 10;
+            chunkGroup.add(waterMesh);
+
+            // ③ 草の配置（2方向のクロスプレーンでボリューム感を出す。色にも個体差を付与）
+            const maxGrass = 1400;
+            const instancedGrassA = new THREE.InstancedMesh(grassGeo, grassMat, maxGrass);
+            const instancedGrassB = new THREE.InstancedMesh(grassGeo2, grassMat, maxGrass);
+            const instancedGrassC = new THREE.InstancedMesh(grassGeoShort, grassMat, maxGrass);
+            const instancedGrassD = new THREE.InstancedMesh(grassGeoShort2, grassMat, maxGrass);
+            instancedGrassA.castShadow = true;
+            instancedGrassB.castShadow = true;
+            instancedGrassC.castShadow = true;
+            instancedGrassD.castShadow = true;
+            let grassCount = 0;
+            const tintColor = new THREE.Color();
+
+            for (let i = 0; i < maxGrass; i++) {
+                const lx = (rng() - 0.5) * CHUNK_SIZE;
+                const lz = (rng() - 0.5) * CHUNK_SIZE;
+                const wx = lx + cx * CHUNK_SIZE;
+                const wz = lz + cz * CHUNK_SIZE;
+                const wy = getTerrainHeight(wx, wz);
+
+                if (wy > WATER_LEVEL + 0.1) {
+                    dummy.position.set(lx, wy - 0.02, lz);
+                    dummy.rotation.y = rng() * Math.PI;
+                    const tall = rng() > 0.36;
+                    const s = tall ? (0.62 + rng() * 0.58) : (0.42 + rng() * 0.30);
+                    const yScale = tall ? (0.88 + rng() * 0.28) : (0.72 + rng() * 0.18);
+                    dummy.scale.set(s, s * yScale, s);
+                    dummy.updateMatrix();
+                    instancedGrassA.setMatrixAt(grassCount, dummy.matrix);
+                    instancedGrassB.setMatrixAt(grassCount, dummy.matrix);
+                    instancedGrassC.setMatrixAt(grassCount, dummy.matrix);
+                    instancedGrassD.setMatrixAt(grassCount, dummy.matrix);
+
+                    // 株ごとに緑の濃淡・色相をわずかにランダム化（単一テクスチャの単調さを解消）
+                    const tint = 0.92 + rng() * 0.22;
+                    const warmth = rng() * 0.18;
+                    tintColor.setRGB(tint, tint + warmth * 0.22, Math.max(tint - warmth * 0.38, 0));
+                    instancedGrassA.setColorAt(grassCount, tintColor);
+                    instancedGrassB.setColorAt(grassCount, tintColor);
+                    instancedGrassC.setColorAt(grassCount, tintColor);
+                    instancedGrassD.setColorAt(grassCount, tintColor);
+                    grassCount++;
+                }
+            }
+            instancedGrassA.count = grassCount;
+            instancedGrassB.count = grassCount;
+            instancedGrassC.count = grassCount;
+            instancedGrassD.count = grassCount;
+            instancedGrassA.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
+            instancedGrassB.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
+            instancedGrassC.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
+            instancedGrassD.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
+            chunkGroup.add(instancedGrassA);
+            chunkGroup.add(instancedGrassB);
+            chunkGroup.add(instancedGrassC);
+            chunkGroup.add(instancedGrassD);
+
+            // ④ 木の配置（陸地のみ、川から離れた場所だけ）
+            const treeGridStep = 18;
+            const minTreeX = Math.floor((cx * CHUNK_SIZE - CHUNK_SIZE / 2) / treeGridStep) - 1;
+            const maxTreeX = Math.floor((cx * CHUNK_SIZE + CHUNK_SIZE / 2) / treeGridStep) + 1;
+            const minTreeZ = Math.floor((cz * CHUNK_SIZE - CHUNK_SIZE / 2) / treeGridStep) - 1;
+            const maxTreeZ = Math.floor((cz * CHUNK_SIZE + CHUNK_SIZE / 2) / treeGridStep) + 1;
+
+            for (let gx = minTreeX; gx <= maxTreeX; gx++) {
+                for (let gz = minTreeZ; gz <= maxTreeZ; gz++) {
+                    if (hash2(gx, gz) < 0.92) continue;
+
+                    const wx = (gx + 0.5 + (hash2(gx + 11, gz + 7) - 0.5) * 0.8) * treeGridStep;
+                    const wz = (gz + 0.5 + (hash2(gx + 23, gz + 19) - 0.5) * 0.8) * treeGridStep;
+                    const localX = wx - cx * CHUNK_SIZE;
+                    const localZ = wz - cz * CHUNK_SIZE;
+                    if (Math.abs(localX) > CHUNK_SIZE / 2 + treeGridStep || Math.abs(localZ) > CHUNK_SIZE / 2 + treeGridStep) continue;
+
+                    const worldHeight = getTerrainHeight(wx, wz);
+                    const riverCenter = Math.sin(wx * 0.010 + fbm(wx * 0.004, wz * 0.004) * 1.8) * 15.0;
+                    const distanceToRiver = Math.abs(wz - riverCenter);
+                    const riverWidth = 12.5 + fbm(wx * 0.01, wz * 0.01) * 5.0;
+                    const isLand = worldHeight > WATER_LEVEL + 1.2;
+                    const farFromRiver = distanceToRiver > riverWidth + 3.0;
+                    if (!isLand || !farFromRiver) continue;
+
+                    const tree = new THREE.Group();
+                    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+                    const trunkScale = 0.9 + hash2(gx + 2, gz + 3) * 0.7;
+                    trunk.scale.setScalar(trunkScale);
+                    tree.add(trunk);
+
+                    const branchCount = 2 + Math.floor(hash2(gx + 5, gz + 9) * 2);
+                    for (let b = 0; b < branchCount; b++) {
+                        const branch = new THREE.Mesh(branchGeo, branchMat);
+                        branch.position.y = 1.05 + b * 0.42;
+                        branch.rotation.z = (hash2(gx + b + 7, gz + b + 13) - 0.5) * 1.0;
+                        branch.rotation.y = hash2(gx + b + 17, gz + b + 29) * Math.PI * 2;
+                        tree.add(branch);
+                    }
+
+                    const crownCount = 5 + Math.floor(hash2(gx + 31, gz + 37) * 4);
+                    for (let c = 0; c < crownCount; c++) {
+                        const crown = new THREE.Mesh(leafGeo, leafMat);
+                        crown.position.set(
+                            (hash2(gx + c + 41, gz + 43) - 0.5) * 1.2,
+                            1.8 + (hash2(gx + c + 47, gz + 53) - 0.5) * 0.6,
+                            (hash2(gx + c + 59, gz + 61) - 0.5) * 1.2
+                        );
+                        crown.scale.setScalar(0.7 + hash2(gx + c + 67, gz + c + 71) * 0.8);
+                        tree.add(crown);
+                    }
+
+                    tree.position.set(localX, worldHeight, localZ);
+                    tree.rotation.y = hash2(gx + 79, gz + 83) * Math.PI * 2;
+                    chunkGroup.add(tree);
+                }
+            }
+
+            scene.add(chunkGroup);
+            chunks.set(chunkId, chunkGroup);
+        }
+
+        function updateChunks() {
+            const pCx = Math.floor(camera.position.x / CHUNK_SIZE);
+            const pCz = Math.floor(camera.position.z / CHUNK_SIZE);
+
+            for (let x = -RENDER_DIST; x <= RENDER_DIST; x++) {
+                for (let z = -RENDER_DIST; z <= RENDER_DIST; z++) {
+                    generateChunk(pCx + x, pCz + z);
+                }
+            }
+
+            for (const [key, chunkGroup] of chunks.entries()) {
+                const [cx, cz] = key.split(',').map(Number);
+                if (Math.abs(cx - pCx) > RENDER_DIST + 1 || Math.abs(cz - pCz) > RENDER_DIST + 1) {
+                    chunkGroup.visible = false; 
+                } else {
+                    chunkGroup.visible = true;  
+                }
+            }
+        }
+
+        let startY = getTerrainHeight(0, 0);
+        if(startY < WATER_LEVEL) startY = WATER_LEVEL;
+        camera.position.set(0, startY + PLAYER_HEIGHT, 0);
+        updateChunks();
+
+        // --- 6. アニメーションループ ---
+        const clock = new THREE.Clock();
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = Math.min(clock.getDelta(), 0.1);
+            const elapsed = clock.getElapsedTime();
+            sharedUniforms.uTime.value = elapsed;
+            waterUniforms.uTime.value = elapsed;
+
+            if (controls.isLocked) {
+                if (keys.w) controls.moveForward(14 * delta);
+                if (keys.s) controls.moveForward(-14 * delta);
+                if (keys.a) controls.moveRight(-11 * delta);
+                if (keys.d) controls.moveRight(11 * delta);
+
+                const currentTerrainY = getTerrainHeight(camera.position.x, camera.position.z);
+                
+                // ★物理演算も完全潜水対応！
+                // 本物の川の底までしっかりプレイヤーが沈み込めるように、地面の判定をそのまま適用！
+                const playerGroundY = currentTerrainY + PLAYER_HEIGHT;
+
+                if (!isGrounded) {
+                    velocityY -= GRAVITY * delta;
+                    camera.position.y += velocityY * delta;
+
+                    if (camera.position.y <= playerGroundY) {
+                        camera.position.y = playerGroundY;
+                        velocityY = 0;
+                        isGrounded = true;
+                    }
+                } else {
+                    camera.position.y = playerGroundY;
+
+                    if (keys.space) {
+                        velocityY = JUMP_FORCE;
+                        isGrounded = false;
+                    }
+                }
+
+                updateChunks();
+            }
+
+            // 太陽の「方向」は固定したまま、影の描画範囲（シャドウカメラ）だけをプレイヤーに追従させる。
+            // 太陽位置そのものを動かすと光の向きが回転してしまい、木や草が逆光で真っ黒になるため、
+            // オフセットベクトルを保ったまま平行移動するだけにする。
+            sunLight.position.set(camera.position.x + SUN_OFFSET.x, camera.position.y + SUN_OFFSET.y, camera.position.z + SUN_OFFSET.z);
+            sunTarget.position.set(camera.position.x, camera.position.y, camera.position.z);
+            sunLight.target.updateMatrixWorld();
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
