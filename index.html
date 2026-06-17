@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ホーム</title>
+    
+    <style>
+        /* 全体のリセットと背景設定 */
+        body {
+            background-color: #0e1116; /* 深いダークカラー */
+            color: #e6edf3;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        /* 中央のコンテンツカード */
+        .card {
+            background-color: #161b22; /* 少し明るめのダーク */
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+            border: 1px solid #21262d;
+        }
+
+        h1 {
+            margin-top: 0;
+            font-size: 2rem;
+            color: #ffffff;
+        }
+
+        p {
+            color: #8b949e;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            margin-bottom: 30px;
+        }
+
+        /* フラットデザインのボタン */
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #00bcd4; /* シアンのアクセントカラー */
+            color: #0e1116;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            transition: background-color 0.2s ease, transform 0.1s ease;
+        }
+
+        /* ホバー（マウスを乗せたとき） */
+        .btn:hover {
+            background-color: #00e5ff; /* より明るいシアン */
+        }
+
+        /* クリックした瞬間 */
+        .btn:active {
+            transform: scale(0.98);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1>Welcome</h1>
+        <p>1ファイルにまとめたテストページです。ここから同じフォルダの別ページへ飛べます。</p>
+        
+        <a href="real.html" class="btn">real.html へ移動</a>
+    </div>
+
+</body>
+</html>
