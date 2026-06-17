@@ -264,13 +264,11 @@
         grassGeoShort.translate(0, 0.5, 0);
         const grassGeoShort2 = grassGeoShort.clone();
         grassGeoShort2.rotateY(Math.PI / 2);
-        const trunkGeo = new THREE.CylinderGeometry(0.12, 0.18, 2.4, 5);
-        trunkGeo.translate(0, 1.2, 0);
-        const branchGeo = new THREE.CylinderGeometry(0.035, 0.055, 0.8, 4);
-        const leafGeo = new THREE.IcosahedronGeometry(0.55, 0);
-        const trunkMat = new THREE.MeshStandardMaterial({ color: '#6a4a28', roughness: 1.0, metalness: 0.0 });
-        const branchMat = new THREE.MeshStandardMaterial({ color: '#5e4024', roughness: 1.0, metalness: 0.0 });
-        const leafMat = new THREE.MeshStandardMaterial({ color: '#60a63a', roughness: 0.98, metalness: 0.0, emissive: '#2c4f18', emissiveIntensity: 0.04 });
+        const trunkGeo = new THREE.CylinderGeometry(0.14, 0.18, 2.0, 6);
+        trunkGeo.translate(0, 1.0, 0);
+        const foliageGeo = new THREE.IcosahedronGeometry(0.8, 0);
+        const trunkMat = new THREE.MeshStandardMaterial({ color: '#7a5630', roughness: 1.0, metalness: 0.0 });
+        const foliageMat = new THREE.MeshStandardMaterial({ color: '#63b23b', roughness: 0.96, metalness: 0.0, emissive: '#31561a', emissiveIntensity: 0.03 });
 
         // 地面マテリアル：完全フラットなroughnessをやめ、湿った土・草の質感の起伏を出すため微弱なroughnessムラを追加
         const floorMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.02 });
@@ -496,59 +494,55 @@
             chunkGroup.add(instancedGrassD);
 
             // ④ 木の配置（陸地のみ、川から離れた場所だけ）
-            const treeGridStep = 18;
-            const minTreeX = Math.floor((cx * CHUNK_SIZE - CHUNK_SIZE / 2) / treeGridStep) - 1;
-            const maxTreeX = Math.floor((cx * CHUNK_SIZE + CHUNK_SIZE / 2) / treeGridStep) + 1;
-            const minTreeZ = Math.floor((cz * CHUNK_SIZE - CHUNK_SIZE / 2) / treeGridStep) - 1;
-            const maxTreeZ = Math.floor((cz * CHUNK_SIZE + CHUNK_SIZE / 2) / treeGridStep) + 1;
+            const treeGridStep = 26;
+            const chunkMinX = cx * CHUNK_SIZE;
+            const chunkMaxX = chunkMinX + CHUNK_SIZE;
+            const chunkMinZ = cz * CHUNK_SIZE;
+            const chunkMaxZ = chunkMinZ + CHUNK_SIZE;
+            const minTreeX = Math.floor((chunkMinX - treeGridStep) / treeGridStep) - 1;
+            const maxTreeX = Math.floor((chunkMaxX + treeGridStep) / treeGridStep) + 1;
+            const minTreeZ = Math.floor((chunkMinZ - treeGridStep) / treeGridStep) - 1;
+            const maxTreeZ = Math.floor((chunkMaxZ + treeGridStep) / treeGridStep) + 1;
 
             for (let gx = minTreeX; gx <= maxTreeX; gx++) {
                 for (let gz = minTreeZ; gz <= maxTreeZ; gz++) {
-                    if (hash2(gx, gz) < 0.92) continue;
+                    if (hash2(gx, gz) < 0.96) continue;
 
-                    const wx = (gx + 0.5 + (hash2(gx + 11, gz + 7) - 0.5) * 0.8) * treeGridStep;
-                    const wz = (gz + 0.5 + (hash2(gx + 23, gz + 19) - 0.5) * 0.8) * treeGridStep;
+                    const wx = (gx + 0.5 + (hash2(gx + 11, gz + 7) - 0.5) * 0.5) * treeGridStep;
+                    const wz = (gz + 0.5 + (hash2(gx + 23, gz + 19) - 0.5) * 0.5) * treeGridStep;
                     const localX = wx - cx * CHUNK_SIZE;
                     const localZ = wz - cz * CHUNK_SIZE;
-                    if (Math.abs(localX) > CHUNK_SIZE / 2 + treeGridStep || Math.abs(localZ) > CHUNK_SIZE / 2 + treeGridStep) continue;
+                    if (wx < chunkMinX || wx >= chunkMaxX || wz < chunkMinZ || wz >= chunkMaxZ) continue;
 
                     const worldHeight = getTerrainHeight(wx, wz);
-                    const riverCenter = Math.sin(wx * 0.010 + fbm(wx * 0.004, wz * 0.004) * 1.8) * 15.0;
-                    const distanceToRiver = Math.abs(wz - riverCenter);
-                    const riverWidth = 12.5 + fbm(wx * 0.01, wz * 0.01) * 5.0;
-                    const isLand = worldHeight > WATER_LEVEL + 1.2;
-                    const farFromRiver = distanceToRiver > riverWidth + 3.0;
-                    if (!isLand || !farFromRiver) continue;
+                    const slopeX = Math.abs(getTerrainHeight(wx + 2.5, wz) - worldHeight);
+                    const slopeZ = Math.abs(getTerrainHeight(wx, wz + 2.5) - worldHeight);
+                    const isLand = worldHeight > WATER_LEVEL + 4.0;
+                    const stableGround = slopeX < 1.6 && slopeZ < 1.6;
+                    const farFromWater = worldHeight > WATER_LEVEL + 6.0;
+                    if (!isLand || !stableGround || !farFromWater) continue;
 
                     const tree = new THREE.Group();
                     const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-                    const trunkScale = 0.9 + hash2(gx + 2, gz + 3) * 0.7;
+                    const trunkScale = 1.05 + hash2(gx + 2, gz + 3) * 0.28;
                     trunk.scale.setScalar(trunkScale);
                     tree.add(trunk);
 
-                    const branchCount = 2 + Math.floor(hash2(gx + 5, gz + 9) * 2);
-                    for (let b = 0; b < branchCount; b++) {
-                        const branch = new THREE.Mesh(branchGeo, branchMat);
-                        branch.position.y = 1.05 + b * 0.42;
-                        branch.rotation.z = (hash2(gx + b + 7, gz + b + 13) - 0.5) * 1.0;
-                        branch.rotation.y = hash2(gx + b + 17, gz + b + 29) * Math.PI * 2;
-                        tree.add(branch);
-                    }
-
-                    const crownCount = 5 + Math.floor(hash2(gx + 31, gz + 37) * 4);
+                    const crownCount = 2 + Math.floor(hash2(gx + 31, gz + 37) * 2);
                     for (let c = 0; c < crownCount; c++) {
-                        const crown = new THREE.Mesh(leafGeo, leafMat);
+                        const crown = new THREE.Mesh(foliageGeo, foliageMat);
                         crown.position.set(
-                            (hash2(gx + c + 41, gz + 43) - 0.5) * 1.2,
-                            1.8 + (hash2(gx + c + 47, gz + 53) - 0.5) * 0.6,
-                            (hash2(gx + c + 59, gz + 61) - 0.5) * 1.2
+                            (hash2(gx + c + 41, gz + 43) - 0.5) * 0.55,
+                            1.15 + c * 0.30 + (hash2(gx + c + 47, gz + 53) - 0.5) * 0.12,
+                            (hash2(gx + c + 59, gz + 61) - 0.5) * 0.55
                         );
-                        crown.scale.setScalar(0.7 + hash2(gx + c + 67, gz + c + 71) * 0.8);
+                        crown.scale.setScalar(0.95 + hash2(gx + c + 67, gz + c + 71) * 0.25);
                         tree.add(crown);
                     }
 
-                    tree.position.set(localX, worldHeight, localZ);
+                    tree.position.set(localX, worldHeight - 0.02, localZ);
                     tree.rotation.y = hash2(gx + 79, gz + 83) * Math.PI * 2;
+                    tree.rotation.z = (hash2(gx + 89, gz + 97) - 0.5) * 0.02;
                     chunkGroup.add(tree);
                 }
             }
