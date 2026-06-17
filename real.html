@@ -13,16 +13,54 @@
             cursor: pointer; user-select: none; border: 2px solid #0055ff;
             box-shadow: 0 0 20px rgba(255,255,255,0.5);
         }
+        #touch-ui { display: none; position: absolute; inset: 0; pointer-events: none; }
+        #joystick-zone {
+            position: absolute; bottom: 30px; left: 30px;
+            width: 130px; height: 130px; pointer-events: auto;
+        }
+        #joystick-base {
+            position: absolute; inset: 0;
+            border-radius: 50%; background: rgba(255,255,255,0.18);
+            border: 2px solid rgba(255,255,255,0.45);
+        }
+        #joystick-knob {
+            position: absolute; width: 54px; height: 54px;
+            border-radius: 50%; background: rgba(255,255,255,0.55);
+            border: 2px solid rgba(255,255,255,0.8);
+            top: 50%; left: 50%; transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        #look-zone {
+            position: absolute; top: 0; right: 0; bottom: 0; left: 200px;
+            pointer-events: auto;
+        }
+        #jump-btn {
+            position: absolute; bottom: 30px; right: 30px;
+            width: 72px; height: 72px; border-radius: 50%;
+            background: rgba(0,100,255,0.45); border: 2px solid rgba(100,180,255,0.75);
+            color: #fff; font-size: 13px; font-family: sans-serif;
+            display: flex; align-items: center; justify-content: center;
+            pointer-events: auto; user-select: none; font-weight: bold;
+        }
     </style>
 </head>
 <body>
     <div id="info">
         <h2 style="margin:0 0 10px 0; color:#0055ff;">最大水深20m超！深淵の無限世界</h2>
-        <p style="margin:0; font-weight:bold;">画面をクリックしてスタート</p>
-        <p style="font-size:12px; color:#555; margin-top:10px;">
+        <p style="margin:0; font-weight:bold;" id="start-hint">画面をクリックしてスタート</p>
+        <p style="font-size:12px; color:#555; margin-top:10px;" id="ctrl-hint">
             移動：W, A, S, D ／ 視点：マウス ／ ジャンプ：SPACE<br>
             風にそよぐ草、波打つ水面、太陽光と影のコントラスト。よりリアルな質感に強化しました。
         </p>
+    </div>
+
+    <div id="touch-ui">
+        <div id="look-zone"></div>
+        <div id="joystick-zone">
+            <div id="joystick-base"></div>
+            <div id="joystick-knob"></div>
+        </div>
+        <div id="jump-btn">JUMP</div>
     </div>
 
     <script type="importmap">
@@ -586,7 +624,7 @@
             sharedUniforms.uTime.value = elapsed;
             waterUniforms.uTime.value = elapsed;
 
-            if (controls.isLocked) {
+            if (controls.isLocked || touchActive) {
                 if (keys.w) controls.moveForward(14 * delta);
                 if (keys.s) controls.moveForward(-14 * delta);
                 if (keys.a) controls.moveRight(-11 * delta);
@@ -634,6 +672,141 @@
             camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
+
+        // --- タッチ操作サポート ---
+        const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+        let touchActive = false;
+
+        // タッチ用のカメラ回転変数
+        let touchYaw = 0;
+        let touchPitch = 0;
+
+        if (isTouchDevice) {
+            // スタート画面のテキストをタッチ向けに変更
+            document.getElementById('start-hint').textContent = 'タップしてスタート';
+            document.getElementById('ctrl-hint').innerHTML =
+                '左：移動ジョイスティック ／ 右：視点ドラッグ ／ JUMPボタン：ジャンプ<br>' +
+                '風にそよぐ草、波打つ水面、太陽光と影のコントラスト。';
+
+            const touchUI = document.getElementById('touch-ui');
+            const info = document.getElementById('info');
+            const joystickZone = document.getElementById('joystick-zone');
+            const joystickKnob = document.getElementById('joystick-knob');
+            const lookZone = document.getElementById('look-zone');
+            const jumpBtn = document.getElementById('jump-btn');
+
+            const JOY_RADIUS = 38;
+
+            // タップでスタート（PointerLockなし）
+            info.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                touchActive = true;
+                info.style.display = 'none';
+                touchUI.style.display = 'block';
+
+                // カメラの初期yaw/pitchを現在の向きから取得
+                const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+                touchYaw = euler.y;
+                touchPitch = euler.x;
+            }, { passive: false });
+
+            // ジョイスティック
+            let joyTouchId = null;
+            let joyOriginX = 0, joyOriginY = 0;
+            const joyRect = () => joystickZone.getBoundingClientRect();
+
+            joystickZone.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                if (joyTouchId !== null) return;
+                const t = e.changedTouches[0];
+                joyTouchId = t.identifier;
+                const r = joyRect();
+                joyOriginX = r.left + r.width / 2;
+                joyOriginY = r.top + r.height / 2;
+            }, { passive: false });
+
+            joystickZone.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                for (const t of e.changedTouches) {
+                    if (t.identifier !== joyTouchId) continue;
+                    let dx = t.clientX - joyOriginX;
+                    let dy = t.clientY - joyOriginY;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist > JOY_RADIUS) { dx *= JOY_RADIUS / dist; dy *= JOY_RADIUS / dist; }
+                    joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+                    const nx = dx / JOY_RADIUS;
+                    const ny = dy / JOY_RADIUS;
+                    const DEAD = 0.18;
+                    keys.w = ny < -DEAD; keys.s = ny > DEAD;
+                    keys.a = nx < -DEAD; keys.d = nx > DEAD;
+                }
+            }, { passive: false });
+
+            const resetJoy = (e) => {
+                for (const t of e.changedTouches) {
+                    if (t.identifier !== joyTouchId) continue;
+                    joyTouchId = null;
+                    joystickKnob.style.transform = 'translate(-50%, -50%)';
+                    keys.w = keys.s = keys.a = keys.d = false;
+                }
+            };
+            joystickZone.addEventListener('touchend', resetJoy, { passive: false });
+            joystickZone.addEventListener('touchcancel', resetJoy, { passive: false });
+
+            // 視点ドラッグ（右エリア）
+            let lookTouchId = null;
+            let lookLastX = 0, lookLastY = 0;
+            const LOOK_SENS = 0.004;
+            const PITCH_LIMIT = Math.PI / 2 - 0.05;
+
+            lookZone.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                if (lookTouchId !== null) return;
+                const t = e.changedTouches[0];
+                lookTouchId = t.identifier;
+                lookLastX = t.clientX;
+                lookLastY = t.clientY;
+            }, { passive: false });
+
+            lookZone.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                for (const t of e.changedTouches) {
+                    if (t.identifier !== lookTouchId) continue;
+                    const dx = t.clientX - lookLastX;
+                    const dy = t.clientY - lookLastY;
+                    lookLastX = t.clientX;
+                    lookLastY = t.clientY;
+                    touchYaw -= dx * LOOK_SENS;
+                    touchPitch -= dy * LOOK_SENS;
+                    touchPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, touchPitch));
+                    const euler = new THREE.Euler(touchPitch, touchYaw, 0, 'YXZ');
+                    camera.quaternion.setFromEuler(euler);
+                }
+            }, { passive: false });
+
+            const resetLook = (e) => {
+                for (const t of e.changedTouches) {
+                    if (t.identifier === lookTouchId) lookTouchId = null;
+                }
+            };
+            lookZone.addEventListener('touchend', resetLook, { passive: false });
+            lookZone.addEventListener('touchcancel', resetLook, { passive: false });
+
+            // ジャンプボタン
+            jumpBtn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                keys.space = true;
+            }, { passive: false });
+            jumpBtn.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                keys.space = false;
+            }, { passive: false });
+            jumpBtn.addEventListener('touchcancel', (e) => {
+                e.preventDefault();
+                keys.space = false;
+            }, { passive: false });
+        }
+
     </script>
 </body>
 </html>
