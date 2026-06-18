@@ -2,413 +2,1377 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Three.js 大深度潜水リバーの無限草原</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PRIMITIVE（プリミティブ）</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #c4e7fe; }
+        body { margin: 0; overflow: hidden; background-color: #b0e3fc; user-select: none; }
         canvas { display: block; }
+        
+        /* 共通フォント・ベース */
+        * { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif; }
+
+        /* スタート画面 UI */
         #info {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: #223311; background: rgba(255,255,255,0.85); padding: 25px 45px;
-            font-family: sans-serif; border-radius: 10px; text-align: center;
-            cursor: pointer; user-select: none; border: 2px solid #0055ff;
-            box-shadow: 0 0 20px rgba(255,255,255,0.5);
+            color: #1a2f3b; background: rgba(255, 255, 255, 0.98); padding: 35px 45px;
+            border-radius: 20px; text-align: center;
+            border: 2px solid rgba(0, 119, 255, 0.35);
+            box-shadow: 0 25px 50px rgba(0,0,0,0.25);
+            max-width: 90%; width: 500px;
+            box-sizing: border-box; z-index: 100;
+            transition: opacity 0.5s ease;
         }
-        #touch-ui { display: none; position: absolute; inset: 0; pointer-events: none; }
-        #joystick-zone {
-            position: absolute; bottom: 30px; left: 30px;
-            width: 130px; height: 130px; pointer-events: auto;
+        .mode-buttons {
+            display: flex; gap: 20px; justify-content: center; margin: 25px 0;
         }
-        #joystick-base {
-            position: absolute; inset: 0;
-            border-radius: 50%; background: rgba(255,255,255,0.18);
-            border: 2px solid rgba(255,255,255,0.45);
+        .btn {
+            padding: 14px 32px; font-size: 18px; font-weight: bold; color: white;
+            border: none; border-radius: 10px; cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.15);
         }
-        #joystick-knob {
-            position: absolute; width: 54px; height: 54px;
-            border-radius: 50%; background: rgba(255,255,255,0.55);
-            border: 2px solid rgba(255,255,255,0.8);
-            top: 50%; left: 50%; transform: translate(-50%, -50%);
-            pointer-events: none;
+        #btn-survival { background-color: #2e7d32; }
+        #btn-survival:hover { background-color: #1b5e20; transform: translateY(-3px); }
+        #btn-creative { background-color: #1565c0; }
+        #btn-creative:hover { background-color: #0d47a1; transform: translateY(-3px); }
+        .btn:active { transform: translateY(1px); box-shadow: 0 2px 5px rgba(0,0,0,0.15); }
+
+        /* 画面中央の照準 */
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 12px; height: 12px; pointer-events: none; z-index: 50; display: none;
         }
-        #look-zone {
-            position: absolute; top: 0; right: 0; bottom: 0; left: 200px;
-            pointer-events: auto;
+        #crosshair::before, #crosshair::after {
+            content: ''; position: absolute; background: white; opacity: 0.8;
+            box-shadow: 0 0 2px rgba(0,0,0,0.5);
         }
-        #jump-btn {
-            position: absolute; bottom: 30px; right: 30px;
-            width: 72px; height: 72px; border-radius: 50%;
-            background: rgba(0,100,255,0.45); border: 2px solid rgba(100,180,255,0.75);
-            color: #fff; font-size: 13px; font-family: sans-serif;
+        #crosshair::before { top: 5px; left: 0; width: 12px; height: 2px; }
+        #crosshair::after { top: 0; left: 5px; width: 2px; height: 12px; }
+        #crosshair.target-active::before, #crosshair.target-active::after {
+            background: #00ffcc; transform: scale(1.3);
+        }
+
+        /* アクション通知ポップアップ */
+        #action-tip {
+            position: absolute; top: 55%; left: 50%; transform: translateX(-50%);
+            color: #ffffff; background: rgba(0, 0, 0, 0.6); padding: 5px 12px;
+            border-radius: 5px; font-size: 13px; font-weight: bold; pointer-events: none;
+            display: none; z-index: 50;
+        }
+
+        /* HUD（左下ステータス） */
+        #hud {
+            position: absolute; bottom: 100px; left: 20px;
+            color: #ffffff; font-family: monospace; font-size: 15px;
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+            pointer-events: none; display: none;
+            background: rgba(0,0,0,0.5); padding: 15px;
+            border-radius: 12px; border-left: 5px solid #00a2ff;
+            z-index: 40; width: 180px;
+        }
+        .status-container { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+        .status-bar { display: flex; align-items: center; gap: 8px; font-size: 16px; }
+
+        /* ホットバー（画面下部） */
+        #hotbar-container {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            display: none; gap: 6px; background: rgba(0,0,0,0.6); padding: 6px;
+            border-radius: 12px; border: 2px solid rgba(255,255,255,0.1); z-index: 80;
+        }
+        .hotbar-slot {
+            width: 52px; height: 52px; background: rgba(255,255,255,0.15);
+            border: 2px solid rgba(255,255,255,0.3); border-radius: 8px;
             display: flex; align-items: center; justify-content: center;
-            pointer-events: auto; user-select: none; font-weight: bold;
+            position: relative; cursor: pointer; transition: background 0.1s;
+        }
+        .hotbar-slot:hover { background: rgba(255,255,255,0.25); }
+        .hotbar-slot.active { border-color: #00ffcc; background: rgba(0, 255, 200, 0.15); }
+        .slot-key {
+            position: absolute; top: 2px; left: 4px; font-size: 10px; color: rgba(255,255,255,0.7);
+        }
+        .slot-count {
+            position: absolute; bottom: 2px; right: 4px; font-size: 11px; color: #fff;
+            font-weight: bold; text-shadow: 1px 1px 2px #000;
+        }
+        .slot-icon { font-size: 24px; pointer-events: none; }
+
+        /* バッグ（インベントリ開閉用ショートカットボタン） */
+        #btn-bag {
+            position: absolute; top: 20px; right: 20px;
+            width: 50px; height: 50px; background: rgba(255,255,255,0.85);
+            border: 2px solid #0055ff; border-radius: 50%;
+            display: none; align-items: center; justify-content: center;
+            font-size: 22px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+            z-index: 80; transition: transform 0.2s;
+        }
+        #btn-bag:hover { transform: scale(1.08); background: #ffffff; }
+
+        /* インベントリメニュー画面 */
+        #inventory-screen {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 760px; max-width: 92vw; background: rgba(30, 40, 55, 0.95);
+            border-radius: 16px; border: 2px solid #00a2ff;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.4);
+            display: none; flex-direction: column; padding: 25px;
+            color: white; z-index: 150; box-sizing: border-box;
+        }
+        #inventory-title {
+            margin: 0 0 20px 0; font-size: 20px; font-weight: bold; text-align: center;
+            border-bottom: 2px solid rgba(255,255,255,0.1); padding-bottom: 12px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        #inventory-close { cursor: pointer; font-size: 18px; color: #aaa; transition: color 0.1s; }
+        #inventory-close:hover { color: #fff; }
+        
+        .inv-section-title { font-size: 13px; color: #88c0d0; margin-bottom: 8px; font-weight: bold; }
+        
+        /* インベントリグリッド */
+        .inventory-grid {
+            display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 18px;
+        }
+        .inv-slot {
+            aspect-ratio: 1; background: rgba(255,255,255,0.06);
+            border: 2px solid rgba(255,255,255,0.15); border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            position: relative; cursor: pointer; transition: all 0.15s;
+        }
+        .inv-slot:hover {
+            background: rgba(255,255,255,0.12); border-color: #00a2ff;
+        }
+        .inv-slot.empty { cursor: default; }
+
+        /* インベントリ内ホットバー連携 */
+        .inventory-hotbar {
+            display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;
+            border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;
+        }
+
+        #inventory-layout {
+            display: grid;
+            grid-template-columns: 1.6fr 1fr;
+            gap: 18px;
+            align-items: start;
+        }
+        #craft-panel {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 12px;
+            padding: 14px;
+        }
+        #craft-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 10px;
+            max-height: 320px;
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+        .craft-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 10px;
+            padding: 8px 10px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .craft-card:hover {
+            background: rgba(255,255,255,0.11);
+            border-color: #00a2ff;
+        }
+        .craft-card.active {
+            border-color: #00ffcc;
+            background: rgba(0,255,204,0.10);
+        }
+        .craft-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+            margin-bottom: 6px;
+        }
+        .craft-recipe {
+            font-size: 11px;
+            color: #cdd6e3;
+            line-height: 1.35;
+        }
+        .craft-action {
+            width: 100%;
+            margin-top: 10px;
+            padding: 9px 12px;
+            border: none;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #00a2ff, #00ffcc);
+            color: #05202b;
+            font-weight: 900;
+            cursor: pointer;
+        }
+        #craft-list::-webkit-scrollbar {
+            width: 8px;
+        }
+        #craft-list::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.25);
+            border-radius: 8px;
+        }
+        #craft-list::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+        }
+        .craft-action:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .toolbar-row {
+            display: flex;
+            gap: 8px;
+            margin: 8px 0 12px 0;
+            flex-wrap: wrap;
+        }
+        .mini-btn {
+            border: 1px solid rgba(255,255,255,0.15);
+            background: rgba(255,255,255,0.08);
+            color: #fff;
+            padding: 8px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .mini-btn:hover {
+            background: rgba(255,255,255,0.14);
+        }
+        .mini-btn.debug {
+            border-color: rgba(255, 120, 0, 0.45);
+            color: #ffd39a;
+        }
+        .mini-input {
+            flex: 1;
+            min-width: 140px;
+            border: 1px solid rgba(255,255,255,0.15);
+            background: rgba(0,0,0,0.18);
+            color: #fff;
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-size: 12px;
+            outline: none;
+        }
+
+        #storage-screen {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 560px; max-width: 92vw; background: rgba(30, 40, 55, 0.96);
+            border-radius: 16px; border: 2px solid #ffb86b;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.4);
+            display: none; flex-direction: column; padding: 22px;
+            color: white; z-index: 160; box-sizing: border-box;
+        }
+        #storage-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+        }
+        .storage-panel {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 12px;
+            padding: 12px;
+        }
+        .storage-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        /* 採取ログポップアップ */
+        #popups {
+            position: absolute; bottom: 120px; right: 20px;
+            display: flex; flex-direction: column; gap: 8px; pointer-events: none; z-index: 80;
+        }
+        .pop-msg {
+            background: rgba(0, 0, 0, 0.75); color: #00ffcc; padding: 10px 18px;
+            border-radius: 8px; font-size: 14px; font-weight: bold;
+            animation: popFade 2.0s forwards; border-right: 4px solid #00ffcc;
+        }
+        @keyframes popFade {
+            0% { transform: translateY(20px); opacity: 0; }
+            10% { transform: translateY(0); opacity: 1; }
+            80% { opacity: 1; }
+            100% { transform: translateY(-20px); opacity: 0; }
         }
     </style>
 </head>
 <body>
+    <!-- スタート選択画面 -->
     <div id="info">
-        <h2 style="margin:0 0 10px 0; color:#0055ff;">最大水深20m超！深淵の無限世界</h2>
-        <p style="margin:0; font-weight:bold;" id="start-hint">画面をクリックしてスタート</p>
-        <p style="font-size:12px; color:#555; margin-top:10px;" id="ctrl-hint">
-            移動：W, A, S, D ／ 視点：マウス ／ ジャンプ：SPACE<br>
-            風にそよぐ草、波打つ水面、太陽光と影のコントラスト。よりリアルな質感に強化しました。
+        <!-- ★タイトルロゴを新しい名前『PRIMITIVE』に書き換え！ -->
+        <h2 style="margin:0 0 8px 0; color:#0077ff; letter-spacing: 2px; font-size: 32px; font-weight: 900;">PRIMITIVE</h2>
+        <p style="margin:0 0 15px 0; font-weight:bold; color:#445566; font-size: 14px;">探索モードを選択してスタート</p>
+        
+        <div class="mode-buttons">
+            <button id="btn-survival" class="btn">サバイバル</button>
+            <button id="btn-creative" class="btn">クリエイティブ</button>
+        </div>
+
+        <p style="font-size:12px; color:#556677; line-height: 1.6; margin: 0; text-align: left; background: rgba(0,0,0,0.03); padding: 14px; border-radius: 10px;">
+            <strong>【共通操作】</strong> 移動：W, A, S, D ／ 視点：ドラッグ または マウス移動 ／ インベントリ：E ／ スロット選択：1〜5キー または マウスホイール<br>
+            <strong>【サバイバル】</strong> 陸上：SPACE（ジャンプ）／ 水中：SPACE（浮上）・SHIFT（潜行）<br>
+            ※木・岩・クリスタル・リンゴに近づいて<strong>左クリック</strong>で叩いて採取可能！<br>
+            <strong>【クリエイティブ】</strong> SPACEを素早く2回押すと、飛行モードのオン・オフを切り替えます。<br>
+            ※飛行中：SPACE（上昇）／ SHIFT（下降）で自由自在にフライト！
         </p>
     </div>
 
-    <div id="touch-ui">
-        <div id="look-zone"></div>
-        <div id="joystick-zone">
-            <div id="joystick-base"></div>
-            <div id="joystick-knob"></div>
+    <!-- クロスヘア & アクションヒント -->
+    <div id="crosshair"></div>
+    <div id="action-tip">採取する (左クリック)</div>
+
+    <!-- HUD (ステータス表示) -->
+    <div id="hud">
+        <div style="font-weight: bold; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 4px; margin-bottom: 8px;">
+            MODE: <span id="mode-val" style="color: #ff79c6;">サバイバル</span>
         </div>
-        <div id="jump-btn">JUMP</div>
+        <div>Depth: <span id="depth-val">0.0</span> m</div>
+        <div>State: <span id="state-val">陸上</span></div>
+        <div>Bio: <span id="biome-val">-</span></div>
+        
+        <!-- サバイバル用HP・空腹・酸素ステータス -->
+        <div id="survival-status-container" class="status-container">
+            <div class="status-bar" title="体力 (❤️)">
+                <span>❤️</span> <span id="hp-val">100</span>%
+            </div>
+            <div class="status-bar" title="満腹度 (🍎)">
+                <span>🍎</span> <span id="hunger-val">100</span>%
+            </div>
+            <div class="status-bar" id="oxygen-bar" title="酸素度 (🫧)">
+                <span>🫧</span> <span id="oxygen-val">100</span>%
+            </div>
+        </div>
     </div>
 
+    <!-- ホットバー -->
+    <div id="hotbar-container">
+        <div class="hotbar-slot active" data-slot="0"><span class="slot-key">1</span><span class="slot-icon"></span><span class="slot-count"></span></div>
+        <div class="hotbar-slot" data-slot="1"><span class="slot-key">2</span><span class="slot-icon"></span><span class="slot-count"></span></div>
+        <div class="hotbar-slot" data-slot="2"><span class="slot-key">3</span><span class="slot-icon"></span><span class="slot-count"></span></div>
+        <div class="hotbar-slot" data-slot="3"><span class="slot-key">4</span><span class="slot-icon"></span><span class="slot-count"></span></div>
+        <div class="hotbar-slot" data-slot="4"><span class="slot-key">5</span><span class="slot-icon"></span><span class="slot-count"></span></div>
+    </div>
+
+    <!-- バッグ開閉用丸ボタン (マウス操作プレイヤー向け) -->
+    <div id="btn-bag" title="インベントリを開く (E)">🎒</div>
+
+    <!-- インベントリ画面 -->
+    <div id="inventory-screen">
+        <h3 id="inventory-title">
+            <span>🎒 インベントリ</span>
+            <span id="inventory-close">✖</span>
+        </h3>
+
+        <div id="inventory-layout">
+            <div>
+                <div class="inv-section-title" id="inv-main-title">バックパック (クリックしてホットバーにセット)</div>
+                <div class="toolbar-row">
+                    <button id="btn-sort-inventory" class="mini-btn">自動整理</button>
+                    <button id="btn-drop-item" class="mini-btn">1個捨てる</button>
+                    <button id="btn-spawn-biomes" class="mini-btn debug">山/洞窟デバッグ</button>
+                    <button id="btn-go-cave" class="mini-btn debug">洞窟へ</button>
+                </div>
+                <div class="inventory-grid" id="main-inventory-grid"></div>
+
+                <div class="inv-section-title">ホットバー (数字 1 ~ 5 キーで切り替え)</div>
+                <div class="inventory-hotbar" id="hotbar-inventory-grid"></div>
+            </div>
+
+            <div id="craft-panel">
+                <div class="inv-section-title" style="margin-bottom: 0;">クラフト</div>
+                <div style="font-size:12px;color:#cfd8e3;line-height:1.6;margin-top:8px;">
+                    レシピを選んで、必要素材があれば作れます。
+                </div>
+                <div class="toolbar-row">
+                    <input id="craft-search" class="mini-input" type="text" placeholder="レシピ検索">
+                </div>
+                <div id="craft-list"></div>
+                <button id="craft-button" class="craft-action">作成</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="storage-screen">
+        <h3 id="storage-title" style="margin:0 0 18px 0;font-size:20px;font-weight:bold;text-align:center;border-bottom:2px solid rgba(255,255,255,0.1);padding-bottom:12px;display:flex;justify-content:space-between;align-items:center;">
+            <span>🧰 収納箱</span>
+            <span id="storage-close" style="cursor:pointer;font-size:18px;color:#aaa;">✖</span>
+        </h3>
+        <div id="storage-layout">
+            <div class="storage-panel">
+                <div class="inv-section-title" style="display:flex;justify-content:space-between;align-items:center;">
+                    <span>収納箱の中身</span>
+                    <span id="storage-page-label" style="font-size:11px;color:#ffd59a;">1 / 1</span>
+                </div>
+                <div class="toolbar-row" style="margin-top:6px;">
+                    <button id="storage-prev" class="mini-btn">← 前</button>
+                    <button id="storage-next" class="mini-btn">次 →</button>
+                </div>
+                <div id="chest-grid" class="storage-grid"></div>
+            </div>
+            <div class="storage-panel">
+                <div class="inv-section-title">バックパック</div>
+                <div id="bag-grid" class="storage-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="furnace-screen" style="display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:420px;max-width:92vw;background:rgba(30,40,55,0.96);border-radius:16px;border:2px solid #ff9f43;box-shadow:0 25px 50px rgba(0,0,0,0.4);padding:22px;color:white;z-index:170;box-sizing:border-box;">
+        <h3 style="margin:0 0 16px 0;font-size:20px;font-weight:bold;text-align:center;border-bottom:2px solid rgba(255,255,255,0.1);padding-bottom:12px;display:flex;justify-content:space-between;align-items:center;">
+            <span>🏺 かまど</span>
+            <span id="furnace-close" style="cursor:pointer;font-size:18px;color:#aaa;">✖</span>
+        </h3>
+        <div class="inv-section-title">右クリックで設置したかまどを使えます</div>
+        <div class="toolbar-row">
+            <button id="smelt-iron" class="mini-btn">鉄を精錬</button>
+        </div>
+        <div style="font-size:12px;color:#cfd8e3;line-height:1.6;">
+            鉄鉱石1 + 石炭1 → 鉄インゴット1
+        </div>
+    </div>
+
+    <!-- 採取獲得通知ログエリア -->
+    <div id="popups"></div>
+    <div id="error-overlay" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.82);color:#fff;z-index:9999;padding:24px;box-sizing:border-box;font-family:monospace;white-space:pre-wrap;overflow:auto;"></div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
     <script type="module">
-        import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-        import { PointerLockControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/PointerLockControls.js';
+        import * as THREE from 'three';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+        import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
-        // --- 1. シーン・カメラ・霧設定 ---
+        // --- 1. アイテム＆インベントリのデータ定義 ---
+        const ITEMS = {
+            wood: { id: 'wood', name: '木材', icon: '🪵', edible: false, hint: '伐採で集まる基本素材' },
+            plank: { id: 'plank', name: '木の板', icon: '🟫', edible: false, hint: '木材を加工した板' },
+            stick: { id: 'stick', name: '棒', icon: '🪵', edible: false, hint: '道具づくりの基本部品' },
+            axe: { id: 'axe', name: '木の斧', icon: '🪓', edible: false, hint: '大きい木を切るための斧' },
+            workbench: { id: 'workbench', name: '作業台', icon: '🛠️', edible: false, hint: '上位クラフトを解放する' },
+            pickaxe: { id: 'pickaxe', name: '木のツルハシ', icon: '⛏️', edible: false, hint: '石を掘るための道具' },
+            shovel: { id: 'shovel', name: '木のスコップ', icon: '🪣', edible: false, hint: '地形を掘る道具' },
+            stoneAxe: { id: 'stoneAxe', name: '石の斧', icon: '🪓', edible: false, hint: '木の斧より強い斧' },
+            stonePickaxe: { id: 'stonePickaxe', name: '石のツルハシ', icon: '⛏️', edible: false, hint: '木より丈夫なツルハシ' },
+            furnace: { id: 'furnace', name: 'かまど', icon: '🏺', edible: false, hint: '石炭で鉱石を焼く' },
+            torch: { id: 'torch', name: 'たいまつ', icon: '🔥', edible: false, hint: '暗い場所を照らす' },
+            chest: { id: 'chest', name: '収納箱', icon: '🧰', edible: false, hint: 'アイテムを保管する箱' },
+            stone: { id: 'stone', name: '丸石', icon: '🪨', edible: false, hint: '地面から取れる石' },
+            coal: { id: 'coal', name: '石炭', icon: '⚫', edible: false, hint: 'かまどの燃料' },
+            ironOre: { id: 'ironOre', name: '鉄鉱石', icon: '🟠', edible: false, hint: 'かまどで精錬できる' },
+            ironIngot: { id: 'ironIngot', name: '鉄インゴット', icon: '🔶', edible: false, hint: '金属加工の基本素材' },
+            crystal: { id: 'crystal', name: 'クリスタル', icon: '💎', edible: false, hint: '深い場所で見つかる' },
+            apple: { id: 'apple', name: 'リンゴ', icon: '🍎', edible: true, recovery: 25, hint: '食べると回復する' }
+        };
+
+        const CRAFTING_RECIPES = [
+            {
+                id: 'plank',
+                name: '木の板',
+                output: { id: 'plank', count: 4 },
+                inputs: [{ id: 'wood', count: 1 }],
+                description: '木材1 → 木の板4'
+            },
+            {
+                id: 'stick',
+                name: '棒',
+                output: { id: 'stick', count: 4 },
+                inputs: [{ id: 'plank', count: 2 }],
+                description: '木の板2 → 棒4'
+            },
+            {
+                id: 'axe',
+                name: '木の斧',
+                output: { id: 'axe', count: 1 },
+                inputs: [{ id: 'plank', count: 3 }, { id: 'stick', count: 2 }],
+                description: '木の板3 + 棒2 → 斧1'
+            },
+            {
+                id: 'workbench',
+                name: '作業台',
+                output: { id: 'workbench', count: 1 },
+                inputs: [{ id: 'plank', count: 4 }],
+                description: '木の板4 → 作業台1'
+            },
+            {
+                id: 'pickaxe',
+                name: '木のツルハシ',
+                output: { id: 'pickaxe', count: 1 },
+                inputs: [{ id: 'plank', count: 3 }, { id: 'stick', count: 2 }],
+                description: '木の板3 + 棒2 → ツルハシ1',
+                station: true
+            },
+            {
+                id: 'shovel',
+                name: '木のスコップ',
+                output: { id: 'shovel', count: 1 },
+                inputs: [{ id: 'plank', count: 1 }, { id: 'stick', count: 2 }],
+                description: '木の板1 + 棒2 → スコップ1',
+                station: true
+            },
+            {
+                id: 'stoneAxe',
+                name: '石の斧',
+                output: { id: 'stoneAxe', count: 1 },
+                inputs: [{ id: 'stone', count: 3 }, { id: 'stick', count: 2 }],
+                description: '丸石3 + 棒2 → 石の斧1',
+                station: true
+            },
+            {
+                id: 'stonePickaxe',
+                name: '石のツルハシ',
+                output: { id: 'stonePickaxe', count: 1 },
+                inputs: [{ id: 'stone', count: 3 }, { id: 'stick', count: 2 }],
+                description: '丸石3 + 棒2 → 石のツルハシ1',
+                station: true
+            },
+            {
+                id: 'torch',
+                name: 'たいまつ',
+                output: { id: 'torch', count: 4 },
+                inputs: [{ id: 'stick', count: 1 }, { id: 'crystal', count: 1 }],
+                description: '棒1 + クリスタル1 → たいまつ4',
+                station: true
+            },
+            {
+                id: 'chest',
+                name: '収納箱',
+                output: { id: 'chest', count: 1 },
+                inputs: [{ id: 'plank', count: 8 }],
+                description: '木の板8 → 収納箱1',
+                station: true
+            },
+            {
+                id: 'furnace',
+                name: 'かまど',
+                output: { id: 'furnace', count: 1 },
+                inputs: [{ id: 'stone', count: 8 }],
+                description: '丸石8 → かまど1',
+                station: true
+            },
+            {
+                id: 'torch',
+                name: 'たいまつ',
+                output: { id: 'torch', count: 8 },
+                inputs: [{ id: 'coal', count: 1 }, { id: 'stick', count: 1 }],
+                description: '石炭1 + 棒1 → たいまつ8',
+                station: true
+            },
+            {
+                id: 'ironIngot',
+                name: '鉄インゴット',
+                output: { id: 'ironIngot', count: 1 },
+                inputs: [{ id: 'ironOre', count: 1 }, { id: 'coal', count: 1 }],
+                description: '鉄鉱石1 + 石炭1 → 鉄インゴット1',
+                station: true
+            }
+        ];
+
+        // プレイヤーのインベントリ状態
+        const playerInventory = {
+            bag: Array(24).fill(null), // 24スロットのメイン収納
+            hotbar: [
+                { id: 'apple', count: 5 }, // 最初からリンゴを5個所持
+                null, null, null, null
+            ],
+            activeSlot: 0
+        };
+
+        // サバイバルゲームステータス
+        const survivalStats = {
+            hp: 100,
+            hunger: 100,
+            oxygen: 100,
+            isDead: false
+        };
+
+        // --- 2. シーン・カメラ・レンダラー設定 ---
         const scene = new THREE.Scene();
-        const skyColor = '#bfe3fb';
-        const horizonColor = '#eaf6ff';
-        scene.background = new THREE.Color(skyColor);
-        // いったん霧は切って、全体の見え方を素直に確認する
-        scene.fog = null;
+        const WATER_LEVEL = -0.5; 
+        const AIR_FOG_COLOR = 0xb0e3fc;
+        const WATER_FOG_COLOR = 0x02162e; 
 
-        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 140);
+        scene.background = new THREE.Color(AIR_FOG_COLOR);
+        scene.fog = new THREE.FogExp2(AIR_FOG_COLOR, 0.012); // やわらかい霧に調整して明るさUP
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 150);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.05;
-        renderer.shadowMap.enabled = false;
-        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.toneMappingExposure = 1.35; // 露出を引き上げて明るく調整
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.body.appendChild(renderer.domElement);
 
         // コントロール
         const controls = new PointerLockControls(camera, document.body);
         const info = document.getElementById('info');
-        info.addEventListener('click', () => controls.lock());
-        controls.addEventListener('lock', () => info.style.display = 'none');
-        controls.addEventListener('unlock', () => info.style.display = 'block');
+        const hud = document.getElementById('hud');
+        const depthVal = document.getElementById('depth-val');
+        const stateVal = document.getElementById('state-val');
+        const biomeVal = document.getElementById('biome-val');
+        const modeVal = document.getElementById('mode-val');
+        const crosshair = document.getElementById('crosshair');
+        const actionTip = document.getElementById('action-tip');
+        const btnBag = document.getElementById('btn-bag');
+        const inventoryScreen = document.getElementById('inventory-screen');
+        const storageScreen = document.getElementById('storage-screen');
+        const furnaceScreen = document.getElementById('furnace-screen');
+        const craftButton = document.getElementById('craft-button');
+        const craftList = document.getElementById('craft-list');
+        const craftSearch = document.getElementById('craft-search');
+        const sortInventoryButton = document.getElementById('btn-sort-inventory');
+        const dropItemButton = document.getElementById('btn-drop-item');
+        const storagePrevButton = document.getElementById('storage-prev');
+        const storageNextButton = document.getElementById('storage-next');
+        const storagePageLabel = document.getElementById('storage-page-label');
+        const furnaceCloseButton = document.getElementById('furnace-close');
+        const smeltIronButton = document.getElementById('smelt-iron');
+        const goCaveButton = document.getElementById('btn-go-cave');
+        const errorOverlay = document.getElementById('error-overlay');
 
-        // --- ライティング（物理的な光の積み重ね） ---
-        // 1) 空 - 地面のバウンスライトをヘミスフィアで表現。これだけで陰影が一気に自然になる
-        // ground側の色を明るめにし、強度も上げて「影=真っ黒」にならないようにする
-        const hemiLight = new THREE.HemisphereLight('#bfe3fb', '#b8c989', 1.45);
-        scene.add(hemiLight);
+        let gameMode = 'survival'; // 'survival' または 'creative'
+        let isFlying = false;      
+        let lastSpaceTime = 0;     
+        let isInventoryOpen = false;
+        let isGamePlaying = false; // ポインターロックが拒否されても動作するゲーム進行フラグ
+        let selectedRecipeId = CRAFTING_RECIPES[0].id;
+        let craftSearchTerm = '';
+        let storagePage = 0;
+        let openFurnace = null;
 
-        // 2) 太陽光（指向性ライト + シャドウ）。色温度をわずかに暖色に振って正午〜午後の質感に
-        const SUN_OFFSET = new THREE.Vector3(45, 70, -25); // 太陽の相対位置（方向）。これは固定し、平行移動のみ行う
-        const sunLight = new THREE.DirectionalLight('#fff3d6', 2.0);
-        sunLight.position.copy(SUN_OFFSET);
-        sunLight.castShadow = false;
-        scene.add(sunLight);
-        // 影のターゲットをプレイヤー追従にして、無限地形でも常に範囲内に太陽影を保つ
-        const sunTarget = new THREE.Object3D();
-        scene.add(sunTarget);
-        sunLight.target = sunTarget;
+        const seedX = Math.random() * 50000 - 25000;
+        const seedZ = Math.random() * 50000 - 25000;
 
-        // 3) 環境光：日陰になった面が完全な黒に落ち込まないよう、十分な底上げをする
-        scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+        // --- レイキャスティング（採取用ターゲット検出） ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2(0, 0); // 照準は常に中央
+        let harvestableObjects = []; // 採取ターゲット of メッシュ登録
+        let harvestableTreeMeshes = [];
+        let placedWorkbenches = [];
+        let placedChests = [];
+        let placedInteractables = [];
+        let focusedObject = null;    
+        const fallingTrees = [];
+        let openChest = null;
+        const creativeCaveRooms = [];
 
-        // --- 2. 物理演算設定 ---
-        const keys = { w: false, a: false, s: false, d: false, space: false };
-        let velocityY = 0;
-        let isGrounded = true;
-        const GRAVITY = 26.0;     
-        const JUMP_FORCE = 10.5;  
-        const PLAYER_HEIGHT = 2.3;
-
-        window.addEventListener('keydown', (e) => {
-            const k = e.key.toLowerCase();
-            if (k === 'w') keys.w = true; if (k === 's') keys.s = true;
-            if (k === 'a') keys.a = true; if (k === 'd') keys.d = true;
-            if (e.code === 'Space') keys.space = true;
+        window.addEventListener('error', (event) => {
+            if (!errorOverlay) return;
+            errorOverlay.style.display = 'block';
+            errorOverlay.textContent = `エラー: ${event.message}\n${event.filename}:${event.lineno}:${event.colno}`;
         });
+        window.addEventListener('unhandledrejection', (event) => {
+            if (!errorOverlay) return;
+            errorOverlay.style.display = 'block';
+            errorOverlay.textContent = `未処理エラー: ${event.reason?.message || event.reason || 'unknown'}`;
+        });
+
+        // UIイベント登録
+        document.getElementById('btn-survival').addEventListener('click', (e) => {
+            e.stopPropagation();
+            startMode('survival');
+        });
+        document.getElementById('btn-creative').addEventListener('click', (e) => {
+            e.stopPropagation();
+            startMode('creative');
+        });
+
+        window.addEventListener('click', () => {
+            if (!isGamePlaying || isInventoryOpen) return;
+            if (document.pointerLockElement !== document.body && controls) {
+                try {
+                    controls.lock();
+                } catch (err) {
+                    console.warn('PointerLock request failed', err);
+                }
+            }
+        });
+
+        function startMode(mode) {
+            gameMode = mode;
+            isFlying = (mode === 'creative');
+            modeVal.textContent = mode === 'survival' ? 'サバイバル' : 'クリエイティブ';
+            modeVal.style.color = mode === 'survival' ? '#5ce629' : '#00a2ff';
+            
+            if (mode === 'survival') {
+                document.getElementById('survival-status-container').style.display = 'flex';
+                // 初期インベントリをリセット
+                playerInventory.bag = Array(24).fill(null);
+                playerInventory.hotbar = [ { id: 'apple', count: 5 }, null, null, null, null ];
+            } else {
+                document.getElementById('survival-status-container').style.display = 'none';
+            }
+            
+            isGamePlaying = true; // 先にゲーム開始フラグをONにする
+            openChest = null;
+            openFurnace = null;
+            if (storageScreen) storageScreen.style.display = 'none';
+            if (furnaceScreen) furnaceScreen.style.display = 'none';
+            
+            try {
+                controls.lock();
+            } catch (err) {
+                console.warn("PointerLock restricted");
+            }
+            
+            // ポインターロックが制限される環境でも確実にHUD等を表示する
+            info.style.display = 'none';
+            hud.style.display = 'block';
+            crosshair.style.display = 'block';
+            btnBag.style.display = 'flex';
+            document.getElementById('hotbar-container').style.display = 'flex';
+            inventoryScreen.style.display = 'none';
+            
+            // 確実にキーボード入力をキャッチするためbodyにフォーカス
+            document.body.focus();
+            
+            updateHotbarUI();
+            updateSurvivalStatusHUD();
+            if (typeof renderCraftingUI === 'function') renderCraftingUI();
+            if (goCaveButton) goCaveButton.style.display = mode === 'creative' ? 'inline-flex' : 'none';
+        }
+
+        controls.addEventListener('lock', () => {
+            isGamePlaying = true;
+            info.style.display = 'none';
+            hud.style.display = 'block';
+            crosshair.style.display = 'block';
+            btnBag.style.display = 'flex';
+            document.getElementById('hotbar-container').style.display = 'flex';
+            inventoryScreen.style.display = 'none';
+            isInventoryOpen = false;
+        });
+
+        controls.addEventListener('unlock', () => {
+            // インベントリが開かれた場合はスタート画面に戻さない
+            if (!isInventoryOpen && isGamePlaying) {
+                // ESCキー押下時のみ一時停止画面に戻るように制限（誤作動防止）
+            }
+        });
+
+        // インベントリ画面開閉処理
+        function toggleInventory() {
+            if (!isGamePlaying && !isInventoryOpen) return; 
+            if (openChest) closeStorage();
+            if (openFurnace) closeFurnaceUI();
+            
+            isInventoryOpen = !isInventoryOpen;
+            if (isInventoryOpen) {
+                controls.unlock();
+                inventoryScreen.style.display = 'flex';
+                crosshair.style.display = 'none';
+                actionTip.style.display = 'none';
+                renderInventoryGrid();
+                if (typeof renderCraftingUI === 'function') renderCraftingUI();
+            } else {
+                inventoryScreen.style.display = 'none';
+                crosshair.style.display = 'block';
+                document.body.focus();
+            }
+        }
+
+        btnBag.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleInventory();
+        });
+        if (sortInventoryButton) {
+            sortInventoryButton.addEventListener('click', () => sortInventory());
+        }
+        if (dropItemButton) {
+            dropItemButton.addEventListener('click', () => dropActiveItem());
+        }
+        const spawnBiomesButton = document.getElementById('btn-spawn-biomes');
+        if (spawnBiomesButton) {
+            spawnBiomesButton.addEventListener('click', () => spawnBiomeDebug());
+        }
+        if (goCaveButton) {
+            goCaveButton.addEventListener('click', () => goToCreativeCave());
+        }
+        if (craftSearch) {
+            craftSearch.addEventListener('input', () => {
+                craftSearchTerm = craftSearch.value;
+                renderCraftingUI();
+            });
+        }
+        if (craftButton) {
+            craftButton.addEventListener('click', () => {
+                craftSelectedRecipe();
+            });
+        }
+        const inventoryCloseButton = document.getElementById('inventory-close');
+        if (inventoryCloseButton) inventoryCloseButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleInventory();
+        });
+        const storageCloseButton = document.getElementById('storage-close');
+        if (storageCloseButton) storageCloseButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeStorage();
+        });
+        if (storagePrevButton) storagePrevButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            pageStorage(-1);
+        });
+        if (storageNextButton) storageNextButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            pageStorage(1);
+        });
+        if (furnaceCloseButton) furnaceCloseButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeFurnaceUI();
+        });
+        if (smeltIronButton) smeltIronButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            smeltIron();
+        });
+
+        // 明るさを大幅に引き上げたライト設定
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.2); // 環境光の明るさをアップ
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xfffaed, 4.5); // 太陽光の明るさをアップ
+        sunLight.position.set(40, 60, -40); 
+        scene.add(sunLight);
+
+        // --- 2. 物理＆操作キーハンドリング ---
+        const keys = { w: false, a: false, s: false, d: false, space: false, shift: false, ctrl: false };
+        let velocity = new THREE.Vector3(); 
+        let isGrounded = true;
+        let inWater = false;
+        
+        const GRAVITY = 24.0;
+        const WATER_GRAVITY = 0.8; 
+        const JUMP_FORCE = 8.5;
+        const PLAYER_HEIGHT = 2.0;
+
+        // ドラッグ＆スワイプで動く予備の視点移動システム (PointerLock非対応時でも確実に動かすため)
+        let cameraYaw = 0;
+        let cameraPitch = 0;
+        const dragSensitivity = 0.0025;
+        let isDragging = false;
+        let prevMouseX = 0;
+        let prevMouseY = 0;
+
+        // ホットバーのアクティブスロットを切り替える関数を定義
+        function setActiveSlot(index) {
+            playerInventory.activeSlot = index;
+            const slots = document.querySelectorAll('.hotbar-slot');
+            slots.forEach((s, idx) => {
+                if (idx === index) s.classList.add('active');
+                else s.classList.remove('active');
+            });
+        }
+
+        // ホットバースロットをクリックして切り替えるイベント処理
+        document.querySelectorAll('.hotbar-slot').forEach((slot, idx) => {
+            slot.addEventListener('click', () => {
+                if (isGamePlaying) {
+                    setActiveSlot(idx);
+                }
+            });
+        });
+
+        // キーボードの入力感度をdocumentで受け取る（確実な検知）
+        document.addEventListener('keydown', (e) => {
+            if (!isGamePlaying && !isInventoryOpen) return;
+
+            if (isInventoryOpen) {
+                if (e.code === 'KeyE' || e.code === 'Escape') {
+                    toggleInventory();
+                }
+                return;
+            }
+
+            const k = e.key.toLowerCase();
+            if (k === 'w') keys.w = true;
+            if (k === 's') keys.s = true;
+            if (k === 'a') keys.a = true;
+            if (k === 'd') keys.d = true;
+            if (e.key === 'Control' || e.code === 'ControlLeft' || e.code === 'ControlRight') keys.ctrl = true;
+            
+            // 確実に動作するようにイベントリスナー側でのスロットキー処理
+            if (['1', '2', '3', '4', '5'].includes(e.key)) {
+                setActiveSlot(parseInt(e.key) - 1);
+            }
+
+            if (e.code === 'KeyQ') {
+                dropActiveItem();
+                return;
+            }
+
+            if (e.code === 'KeyE') {
+                toggleInventory();
+                return;
+            }
+            
+            if (e.code === 'Space') {
+                keys.space = true;
+                
+                if (gameMode === 'creative' && !e.repeat) {
+                    const now = performance.now();
+                    if (now - lastSpaceTime < 280) { 
+                        isFlying = !isFlying;
+                        velocity.y = 0; 
+                    }
+                    lastSpaceTime = now;
+                }
+            }
+            if (e.shiftKey || k === 'shift') keys.shift = true;
+
+            // ESCキー押下時に安全にモード選択画面に戻す
+            if (e.code === 'Escape') {
+                if (isGamePlaying) {
+                    isGamePlaying = false;
+                    info.style.display = 'block';
+                    hud.style.display = 'none';
+                    crosshair.style.display = 'none';
+                    btnBag.style.display = 'none';
+                    document.getElementById('hotbar-container').style.display = 'none';
+                    controls.unlock();
+                }
+            }
+        });
+
         window.addEventListener('keyup', (e) => {
             const k = e.key.toLowerCase();
-            if (k === 'w') keys.w = false; if (k === 's') keys.s = false;
-            if (k === 'a') keys.a = false; if (k === 'd') keys.d = false;
+            if (k === 'w') keys.w = false;
+            if (k === 's') keys.s = false;
+            if (k === 'a') keys.a = false;
+            if (k === 'd') keys.d = false;
+            if (e.key === 'Control' || e.code === 'ControlLeft' || e.code === 'ControlRight') keys.ctrl = false;
             if (e.code === 'Space') keys.space = false;
+            if (!e.shiftKey && k !== 'shift') keys.shift = false;
         });
 
-        // --- 3. 【限界突破！最大水深20m超の地形数式】 ---
-        const WATER_LEVEL = -0.5; 
+        // ドラッグによるカメラ回転のイベントリスナー
+        document.addEventListener('mousedown', (e) => {
+            if (!isGamePlaying || isInventoryOpen) return;
+            if (e.target.closest('#btn-bag') || e.target.closest('#inventory-screen') || e.target.closest('#hotbar-container')) return;
+            isDragging = true;
+            prevMouseX = e.clientX;
+            prevMouseY = e.clientY;
+        });
 
-        function hash2(x, z) {
-            const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453123;
-            return s - Math.floor(s);
-        }
+        document.addEventListener('mousemove', (e) => {
+            if (!isGamePlaying || isInventoryOpen) return;
 
-        function smoothNoise(x, z) {
-            const xi = Math.floor(x);
-            const zi = Math.floor(z);
-            const xf = x - xi;
-            const zf = z - zi;
-            const u = xf * xf * (3.0 - 2.0 * xf);
-            const v = zf * zf * (3.0 - 2.0 * zf);
-            const n00 = hash2(xi, zi);
-            const n10 = hash2(xi + 1, zi);
-            const n01 = hash2(xi, zi + 1);
-            const n11 = hash2(xi + 1, zi + 1);
-            return THREE.MathUtils.lerp(
-                THREE.MathUtils.lerp(n00, n10, u),
-                THREE.MathUtils.lerp(n01, n11, u),
-                v
-            );
-        }
-
-        function fbm(x, z) {
-            let value = 0;
-            let amplitude = 0.5;
-            let frequency = 1;
-            for (let i = 0; i < 4; i++) {
-                value += smoothNoise(x * frequency, z * frequency) * amplitude;
-                frequency *= 2;
-                amplitude *= 0.5;
+            if (document.pointerLockElement === document.body) {
+                // ポインターロック中はそちらの回転を優先
+                cameraYaw = camera.rotation.y;
+                cameraPitch = camera.rotation.x;
+                return;
             }
-            return value;
+
+            if (isDragging) {
+                const deltaX = e.clientX - prevMouseX;
+                const deltaY = e.clientY - prevMouseY;
+
+                cameraYaw -= deltaX * dragSensitivity;
+                cameraPitch -= deltaY * dragSensitivity;
+                cameraPitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, cameraPitch));
+
+                camera.rotation.order = 'YXZ';
+                camera.rotation.y = cameraYaw;
+                camera.rotation.x = cameraPitch;
+
+                prevMouseX = e.clientX;
+                prevMouseY = e.clientY;
+            }
+        });
+
+        document.addEventListener('mouseup', () => { isDragging = false; });
+
+        // タッチパネル対応スワイプ視点移動
+        document.addEventListener('touchstart', (e) => {
+            if (!isGamePlaying || isInventoryOpen) return;
+            if (e.target.closest('#btn-bag') || e.target.closest('#inventory-screen') || e.target.closest('#hotbar-container')) return;
+            if (e.touches.length > 0) {
+                isDragging = true;
+                prevMouseX = e.touches[0].clientX;
+                prevMouseY = e.touches[0].clientY;
+            }
+        }, { passive: true });
+
+        document.addEventListener('touchmove', (e) => {
+            if (isDragging && e.touches.length > 0) {
+                const deltaX = e.touches[0].clientX - prevMouseX;
+                const deltaY = e.touches[0].clientY - prevMouseY;
+
+                cameraYaw -= deltaX * dragSensitivity * 1.5; 
+                cameraPitch -= deltaY * dragSensitivity * 1.5;
+                cameraPitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, cameraPitch));
+
+                camera.rotation.order = 'YXZ';
+                camera.rotation.y = cameraYaw;
+                camera.rotation.x = cameraPitch;
+
+                prevMouseX = e.touches[0].clientX;
+                prevMouseY = e.touches[0].clientY;
+            }
+        }, { passive: true });
+
+        document.addEventListener('touchend', () => { isDragging = false; });
+
+
+        // --- 3. 地形アルゴリズム & 波の動的高さ計算関数 ---
+        function rawNoise(x, z) {
+            return Math.sin(x * 0.1) * Math.sin(z * 0.1) * 0.5 + Math.sin(x * 0.03) * Math.cos(z * 0.03) * 0.5;
         }
 
+        function getBiomeAt(x, z) {
+            const wsX = x + seedX;
+            const wsZ = z + seedZ;
+            const moisture = rawNoise(wsX * 0.035 + 120, wsZ * 0.035 - 80);
+            const elevation = rawNoise(wsX * 0.018 - 40, wsZ * 0.018 + 70);
+            const caveNoise = rawNoise(wsX * 0.05 + 10, wsZ * 0.05 - 10);
+            if (elevation > 0.28) return { type: 'mountain', density: 0.68, caveChance: 0.22, oreChance: 0.3 };
+            if (caveNoise > 0.34 && elevation > -0.08) return { type: 'cave', density: 0.12, caveChance: 0.08, oreChance: 0.34 };
+            if (moisture < -0.2) return { type: 'dry', density: 0.72, caveChance: 0.04, oreChance: 0.14 };
+            return { type: 'plains', density: 1.0, caveChance: 0.1, oreChance: 0.1 };
+        }
+
+        // シード値と適切な川の量を考慮した地形高低差計算
         function getTerrainHeight(x, z) {
-            const terrainBase = fbm(x * 0.015, z * 0.015) * 8.0 - 2.2;
-            const ridges = Math.abs(fbm(x * 0.05 + 19.2, z * 0.05 - 7.7) * 2.0 - 1.0) * 2.4;
-            const hills = Math.sin(x * 0.028) * Math.cos(z * 0.026) * 2.4;
-            const riverCenter = Math.sin(x * 0.010 + fbm(x * 0.004, z * 0.004) * 1.8) * 15.0;
-            const distanceToRiver = Math.abs(z - riverCenter);
-            const riverWidth = 12.5 + fbm(x * 0.01, z * 0.01) * 5.0;
+            const distFromSpawn = Math.sqrt(x*x + z*z);
+            const spawnProtection = Math.max(0.0, Math.min(1.0, distFromSpawn / 35.0));
 
-            let height = terrainBase + ridges + hills;
-            if (distanceToRiver < riverWidth) {
-                const t = 1 - distanceToRiver / riverWidth;
-                const riverBed = WATER_LEVEL - 11.5 - fbm(x * 0.03 + 2.0, z * 0.03 - 4.0) * 5.8;
-                height = THREE.MathUtils.lerp(height, riverBed, Math.pow(t, 1.7));
+            const wsX = x + seedX;
+            const wsZ = z + seedZ;
+            const biome = getBiomeAt(x, z);
+
+            const baseHill = rawNoise(wsX * 0.4, wsZ * 0.4) * 4.0 + rawNoise(wsX * 1.2, wsZ * 1.2) * 0.9;
+            const mountainBoost = Math.max(0, rawNoise(wsX * 0.010, wsZ * 0.010) - 0.02) * 20.0;
+            const mountainSmooth = rawNoise(wsX * 0.022, wsZ * 0.022) * 2.2 + rawNoise(wsX * 0.06, wsZ * 0.06) * 0.7;
+            const mountainHeight = 5.5 + baseHill * 0.22 + mountainBoost + mountainSmooth;
+            const riverRoute = Math.sin(wsX * 0.012 + wsZ * 0.006) * 16.0 + Math.cos(wsX * 0.005 - wsZ * 0.01) * 4.0;
+            const distToRiver = Math.abs(riverRoute);
+
+            const maxRiverWidth = 11.5; 
+
+            let terrain = baseHill;
+
+            if (biome.type === 'mountain') terrain = mountainHeight;
+            if (distToRiver < maxRiverWidth) {
+                const widthFactor = (1.0 - (distToRiver / maxRiverWidth)) * spawnProtection; 
+                const canyonDepth = -23.0;
+                const ruggedBottom = Math.sin(wsX * 0.08) * Math.cos(wsZ * 0.08) * 3.5 + Math.sin(wsZ * 0.15) * 1.0;
+                const riverBottom = canyonDepth + ruggedBottom;
+
+                const t = Math.pow(widthFactor, 1.8);
+                terrain = THREE.MathUtils.lerp(terrain, riverBottom, biome.type === 'mountain' ? t * 0.12 : t);
             }
 
-            return height;
+            if (biome.type === 'cave') {
+                const cavePocket = rawNoise(wsX * 0.08 + 200, wsZ * 0.08 - 200);
+                if (cavePocket > 0.05) terrain -= 18.0 + cavePocket * 4.0;
+                else terrain -= 10.0;
+            }
+
+            return terrain;
         }
 
-        // --- 4. マテリアル・テクスチャ設定 ---
-        // 草テクスチャ：根元を暗く（AO風）、先端をハイライトに、葉脈の濃淡ノイズを追加してリアル感を出す
-        function createGrassTexture() {
-            const canvas = document.createElement('canvas'); canvas.width = 96; canvas.height = 128;
+        function getWaterHeightAt(x, z, time) {
+            const wave1 = Math.sin(x * 0.15 + time * 1.6) * Math.cos(z * 0.15 + time * 1.2) * 0.18;
+            const wave2 = Math.sin(x * 0.35 - time * 2.2) * 0.07;
+            const wave3 = Math.cos(z * 0.55 + time * 2.8) * 0.04;
+            return WATER_LEVEL + wave1 + wave2 + wave3;
+        }
+
+        // --- 4. テクスチャ＆マテリアルの構築 ---
+
+        // A. リアルな波紋用の高精細法線マップ (Canvasで生成)
+        function createWaterNormalTexture() {
+            const size = 512; 
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
             const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            const blades = [
-                { x: 16, tilt: -16, width: 6, height: 123, colorA: '#4c9c2f', colorB: '#d6ff8f' },
-                { x: 29, tilt: -8,  width: 5, height: 127, colorA: '#56ab35', colorB: '#e1ff9d' },
-                { x: 44, tilt: 6,   width: 5, height: 124, colorA: '#4fa132', colorB: '#d8ff92' },
-                { x: 61, tilt: 14,  width: 5, height: 119, colorA: '#4a9830', colorB: '#d1ff87' },
-                { x: 77, tilt: 20,  width: 4, height: 112, colorA: '#55ae38', colorB: '#edffaf' },
-                { x: 90, tilt: -2,  width: 4, height: 106, colorA: '#4ea332', colorB: '#dcff97' }
-            ];
-
-            for (const blade of blades) {
-                const grad = ctx.createLinearGradient(0, blade.height, 0, 0);
-                grad.addColorStop(0, blade.colorA);
-                grad.addColorStop(0.2, '#69cd3d');
-                grad.addColorStop(0.62, '#b6fb74');
-                grad.addColorStop(1, blade.colorB);
-                ctx.fillStyle = grad;
-
-                ctx.save();
-                ctx.translate(blade.x, 0);
-                ctx.rotate(blade.tilt * Math.PI / 180);
-                ctx.beginPath();
-                ctx.moveTo(0, blade.height);
-                ctx.quadraticCurveTo(-blade.width * 1.25, blade.height * 0.56, -blade.width * 0.18, 0);
-                ctx.quadraticCurveTo(blade.width * 0.22, blade.height * 0.06, blade.width * 0.85, blade.height * 0.72);
-                ctx.quadraticCurveTo(blade.width * 0.12, blade.height * 0.94, 0, blade.height);
-                ctx.fill();
-
-                ctx.globalAlpha = 0.42;
-                ctx.strokeStyle = '#f7ffd8';
-                ctx.lineWidth = 0.9;
-                ctx.beginPath();
-                ctx.moveTo(0, blade.height * 0.95);
-                ctx.quadraticCurveTo(-blade.width * 0.12, blade.height * 0.5, 0, 8);
-                ctx.stroke();
-                ctx.globalAlpha = 1.0;
-                ctx.restore();
+            const imgData = ctx.createImageData(size, size);
+            
+            for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
+                    const angle1 = (x * 0.05) + (y * 0.02);
+                    const angle2 = (x * 0.02) - (y * 0.06);
+                    const nx = Math.sin(angle1) * 60 + Math.cos(angle2 * 2) * 30 + 128;
+                    const ny = Math.cos(angle1) * 60 + Math.sin(angle2 * 2) * 30 + 128;
+                    const nz = 240; 
+                    const idx = (y * size + x) * 4;
+                    imgData.data[idx] = Math.min(255, Math.max(0, nx));
+                    imgData.data[idx+1] = Math.min(255, Math.max(0, ny));
+                    imgData.data[idx+2] = nz;
+                    imgData.data[idx+3] = 255;
+                }
             }
+            ctx.putImageData(imgData, 0, 0);
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(8, 8);
+            return texture;
+        }
+        const waterNormalMap = createWaterNormalTexture();
 
-            // 根元のAO（接地部の影）
-            const aoGrad = ctx.createRadialGradient(48, 126, 3, 48, 126, 30);
-            aoGrad.addColorStop(0, 'rgba(60,120,36,0.08)');
-            aoGrad.addColorStop(1, 'rgba(12,30,8,0)');
-            ctx.fillStyle = aoGrad;
-            ctx.beginPath(); ctx.rect(0, 98, 96, 30); ctx.fill();
+        // クリーンな3D草株用テクスチャ自動生成
+        function createGrassTexture() {
+            const size = 128; 
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
 
-            // 粒状ノイズで質感付け
-            for (let i = 0; i < 260; i++) {
-                const nx = Math.random() * 96, ny = Math.random() * 128;
-                ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.11)' : 'rgba(50,130,26,0.025)';
-                ctx.fillRect(nx, ny, 1.4, 1.4);
-            }
+            ctx.clearRect(0, 0, size, size);
+
+            const grad = ctx.createLinearGradient(0, size, 0, 0);
+            grad.addColorStop(0, '#104d05');   // 根元：深緑
+            grad.addColorStop(0.5, '#2ca10c'); // 中間：緑
+            grad.addColorStop(1, '#a6f230');   // 先端：きらめく黄緑
+
+            ctx.fillStyle = grad;
+
+            // 葉っぱ1 (左)
+            ctx.beginPath();
+            ctx.moveTo(size * 0.5, size);
+            ctx.quadraticCurveTo(size * 0.4, size * 0.4, size * 0.15, size * 0.3);
+            ctx.quadraticCurveTo(size * 0.35, size * 0.5, size * 0.5, size);
+            ctx.fill();
+
+            // 葉っぱ2 (右)
+            ctx.beginPath();
+            ctx.moveTo(size * 0.5, size);
+            ctx.quadraticCurveTo(size * 0.6, size * 0.4, size * 0.85, size * 0.3);
+            ctx.quadraticCurveTo(size * 0.65, size * 0.5, size * 0.5, size);
+            ctx.fill();
+
+            // 葉っぱ3 (中央)
+            ctx.beginPath();
+            ctx.moveTo(size * 0.44, size);
+            ctx.quadraticCurveTo(size * 0.5, size * 0.1, size * 0.5, 0);
+            ctx.quadraticCurveTo(size * 0.56, size * 0.1, size * 0.56, size);
+            ctx.fill();
+
             return new THREE.CanvasTexture(canvas);
         }
-        const grassTexture = createGrassTexture();
-        grassTexture.colorSpace = THREE.SRGBColorSpace;
+        
         const grassMat = new THREE.MeshStandardMaterial({
-            map: grassTexture, alphaTest: 0.18, side: THREE.DoubleSide,
-            roughness: 0.9, metalness: 0.0,
-            vertexColors: true, // インスタンスごとの色バリエーション用
-            emissive: new THREE.Color('#6ea83f'),
-            emissiveIntensity: 0.32
+            map: createGrassTexture(),
+            alphaTest: 0.1, 
+            side: THREE.DoubleSide,
+            roughness: 0.7,
+            metalness: 0.05
         });
 
-        // 草の風揺れ：根元は固定、先端ほど大きく揺れる二乗カーブ＋個体ごとの揺れ位相をずらして自然な「群れ」感を出す
+        // C. 水中植物（海草）用マテリアル
+        function createKelpTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createLinearGradient(0, 128, 0, 0);
+            grad.addColorStop(0, '#0a2024'); 
+            grad.addColorStop(0.5, '#12453b'); 
+            grad.addColorStop(1, '#2fb086'); 
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.moveTo(32, 128);
+            ctx.quadraticCurveTo(0, 70, 32, 0);
+            ctx.quadraticCurveTo(64, 70, 32, 128);
+            ctx.fill();
+            return new THREE.CanvasTexture(canvas);
+        }
+        
+        const kelpMat = new THREE.MeshStandardMaterial({
+            map: createKelpTexture(),
+            alphaTest: 0.2,
+            side: THREE.DoubleSide,
+            roughness: 0.8,
+            metalness: 0.0
+        });
+
+        const trunkMat = new THREE.MeshStandardMaterial({
+            color: 0x5a3722,      
+            roughness: 0.9,
+            metalness: 0.05,
+            flatShading: true     
+        });
+
+        const leavesMat = new THREE.MeshStandardMaterial({
+            color: 0x228b22, // 元のリアルで落ち着いた緑色に調整
+            roughness: 0.65,
+            metalness: 0.05,
+            flatShading: true,    
+            side: THREE.DoubleSide
+        });
+
+        // 時間Uniformの共有
         const sharedUniforms = { uTime: { value: 0 } };
+
+        // 草の揺れシェーダー
         grassMat.onBeforeCompile = (shader) => {
             shader.uniforms.uTime = sharedUniforms.uTime;
             shader.vertexShader = `uniform float uTime;\n` + shader.vertexShader;
             shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>',
-                `#include <begin_vertex>
-                float bladeH = position.y;
-                // instanceMatrixの平行移動成分を疑似ランダムシードとして使い、株ごとに揺れの位相とスピードをずらす
-                #ifdef USE_INSTANCING
-                    float seed = fract(sin(dot(instanceMatrix[3].xz, vec2(12.9898, 78.233))) * 43758.5453);
-                #else
-                    float seed = 0.0;
-                #endif
-                float phase = seed * 6.2831;
-                float speed = 1.6 + seed * 0.9;
-                float windStrength = 0.10 + seed * 0.05;
-                float bend = bladeH * bladeH; // 根元0、先端ほど強く曲がる
-                float sway = sin(uTime * speed + phase + position.x * 1.3) * windStrength;
-                float gust = sin(uTime * 0.5 + phase * 0.3) * 0.04; // ゆっくりした突風の波
-                transformed.x += (sway + gust) * bend;
-                transformed.z += cos(uTime * speed * 0.8 + phase) * windStrength * 0.5 * bend;`
+                `#include <begin_vertex>\nfloat h = position.y;\ntransformed.x += (sin(uTime * 2.3 + position.x * 2.2) * 0.09) * h;\ntransformed.z += (cos(uTime * 1.7 + position.z * 1.8) * 0.06) * h;`
             );
         };
-        // 葉を1枚から2枚のクロスプレーンにして、どの角度から見ても薄っぺらく見えないようにする
-        const grassGeo = new THREE.PlaneGeometry(0.18, 1.42, 1, 4);
-        grassGeo.translate(0, 0.5, 0);
-        const grassGeo2 = grassGeo.clone();
-        grassGeo2.rotateY(Math.PI / 2);
-        const grassGeoShort = new THREE.PlaneGeometry(0.16, 0.78, 1, 3);
-        grassGeoShort.translate(0, 0.5, 0);
-        const grassGeoShort2 = grassGeoShort.clone();
-        grassGeoShort2.rotateY(Math.PI / 2);
-        const trunkGeo = new THREE.CylinderGeometry(0.14, 0.18, 2.0, 6);
-        trunkGeo.translate(0, 1.0, 0);
-        const foliageGeo = new THREE.IcosahedronGeometry(0.8, 0);
-        const trunkMat = new THREE.MeshStandardMaterial({ color: '#7a5630', roughness: 1.0, metalness: 0.0 });
-        const foliageMat = new THREE.MeshStandardMaterial({ color: '#63b23b', roughness: 0.96, metalness: 0.0, emissive: '#31561a', emissiveIntensity: 0.03 });
 
-        // 地面マテリアル：完全フラットなroughnessをやめ、湿った土・草の質感の起伏を出すため微弱なroughnessムラを追加
-        const floorMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.02 });
+        // 海草の揺れシェーダー
+        kelpMat.onBeforeCompile = (shader) => {
+            shader.uniforms.uTime = sharedUniforms.uTime;
+            shader.vertexShader = `uniform float uTime;\n` + shader.vertexShader;
+            shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>',
+                `#include <begin_vertex>\nfloat h = position.y;\ntransformed.x += (sin(uTime * 1.2 + position.y * 3.0) * 0.15) * h;\ntransformed.z += (cos(uTime * 0.9 + position.y * 2.0) * 0.1) * h;`
+            );
+        };
 
-        // 【リアル水面シェーダー】
-        // 「ガラスのような透過(transmission)」に強く依存すると、平らな板1枚では背景がそのまま映り込んで
-        // 不自然な縞模様になりやすいため、ここでは深度フェード（浅瀬は明るく・深いと暗く沈む）を主役にし、
-        // 反射・きらめきは控えめな補助効果として重ねる方針に変更。
+        // 立体的な木の葉の塊が風でそよぐアニメーションシェーダー
+        leavesMat.onBeforeCompile = (shader) => {
+            shader.uniforms.uTime = sharedUniforms.uTime;
+            shader.vertexShader = `uniform float uTime;\n` + shader.vertexShader;
+            shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>',
+                `#include <begin_vertex>\ntransformed.x += sin(uTime * 1.2 + position.y * 0.4) * 0.03 * (position.y - 1.0);\ntransformed.z += cos(uTime * 1.0 + position.y * 0.4) * 0.02 * (position.y - 1.0);`
+            );
+        };
+
+        // ジオメトリの準備
+        const gPlane1 = new THREE.PlaneGeometry(0.85, 1.2, 1, 3);
+        gPlane1.translate(0, 0.6, 0); 
+        const gPlane2 = gPlane1.clone().rotateY(Math.PI / 3);
+        const gPlane3 = gPlane1.clone().rotateY(-Math.PI / 3);
+        
+        const grassGeo = BufferGeometryUtils.mergeGeometries([gPlane1, gPlane2, gPlane3]);
+
+        const kelpGeo = new THREE.PlaneGeometry(0.6, 2.5, 1, 4);
+        kelpGeo.translate(0, 1.25, 0);
+
+        // 幹のスケール
+        const trunkGeo = new THREE.CylinderGeometry(0.24, 0.45, 4.2, 6);
+        trunkGeo.translate(0, 2.1, 0); 
+
+        // 6パーツ of 多面体を組み合わせて広葉樹ジオメトリにする
+        const lCenter = new THREE.IcosahedronGeometry(1.6, 1); lCenter.translate(0, 4.6, 0);
+        const lTop = new THREE.IcosahedronGeometry(1.1, 1); lTop.translate(0, 5.8, 0);
+        const lRight = new THREE.IcosahedronGeometry(1.1, 1); lRight.translate(1.2, 4.2, 0.4);
+        const lLeft = new THREE.IcosahedronGeometry(1.1, 1); lLeft.translate(-1.2, 4.4, -0.4);
+        const lFront = new THREE.IcosahedronGeometry(1.0, 1); lFront.translate(-0.3, 3.8, 1.1);
+        const lBack = new THREE.IcosahedronGeometry(1.0, 1); lBack.translate(0.3, 4.0, -1.1);
+
+        const leavesGeo = BufferGeometryUtils.mergeGeometries([
+            lCenter, lTop, lRight, lLeft, lFront, lBack
+        ]);
+
+        // 地面マテリアル
+        const floorMat = new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            roughness: 0.9,
+            metalness: 0.1
+        });
+
+        // 3D波立つ水面
         const waterMat = new THREE.MeshPhysicalMaterial({
-            color: '#8acfe5',
+            color: 0xccf0ff,
             transparent: true,
-            opacity: 0.92,
-            roughness: 0.03,
-            metalness: 0.0,
-            transmission: 0.32,
+            opacity: 0.55,
+            roughness: 0.02,
+            metalness: 0.02,
+            transmission: 0.90, 
             ior: 1.333,
-            thickness: 1.2,
             side: THREE.DoubleSide,
-            envMapIntensity: 0.9,
-            clearcoat: 0.45,
-            clearcoatRoughness: 0.18,
+            normalMap: waterNormalMap,
+            normalScale: new THREE.Vector2(0.25, 0.25), 
+            clearcoat: 1.0,           
+            clearcoatRoughness: 0.01,
             depthWrite: false
         });
 
-        const waterUniforms = {
-            uTime: { value: 0 },
-            uSunDir: { value: new THREE.Vector3(45, 70, -25).normalize() }
-        };
-
         waterMat.onBeforeCompile = (shader) => {
-            Object.assign(shader.uniforms, waterUniforms);
-
-            // --- 頂点シェーダー：複数の正弦波を重ねた自然な波の起伏 ---
-            shader.vertexShader = `
-                uniform float uTime;
-                varying float vWaveHeight;
-                varying vec3 vWorldPos;
-                varying vec3 vWorldNormal;
-            ` + shader.vertexShader;
-
-            shader.vertexShader = shader.vertexShader.replace(
-                '#include <begin_vertex>',
-                `#include <begin_vertex>
-                vec4 wWorldPos4 = modelMatrix * vec4(transformed, 1.0);
-                float wx = wWorldPos4.x;
-                float wz = wWorldPos4.z;
-                float wave =
-                    sin(wx * 0.18 + uTime * 1.05) * 0.028 +
-                    sin(wz * 0.22 - uTime * 0.92) * 0.024 +
-                    sin((wx + wz) * 0.31 + uTime * 1.45) * 0.014 +
-                    sin((wx - wz) * 0.46 + uTime * 2.1) * 0.010;
-                transformed.y += wave;
-                vWaveHeight = wave;
-                vWorldPos = wWorldPos4.xyz;
-                vWorldNormal = normalize(mat3(modelMatrix) * objectNormal);`
-            );
-
-            // --- フラグメントシェーダー：フレネル反射 + きらめき（縞模様にならないよう複数周波数を混ぜる）---
-            shader.fragmentShader = `
-                uniform vec3 uSunDir;
-                varying float vWaveHeight;
-                varying vec3 vWorldPos;
-                varying vec3 vWorldNormal;
-            ` + shader.fragmentShader;
-
-            shader.fragmentShader = shader.fragmentShader.replace(
-                '#include <dithering_fragment>',
+            shader.uniforms.uTime = sharedUniforms.uTime;
+            shader.vertexShader = `uniform float uTime;\n` + shader.vertexShader;
+            
+            shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>',
+                `#include <begin_vertex>\n
+                float wX = (modelMatrix * vec4(position, 1.0)).x;
+                float wZ = (modelMatrix * vec4(position, 1.0)).z;
+                
+                float wave1 = sin(wX * 0.15 + uTime * 1.6) * cos(wZ * 0.15 + uTime * 1.2) * 0.18;
+                float wave2 = sin(wX * 0.35 - uTime * 2.2) * 0.07;
+                float wave3 = cos(wZ * 0.55 + uTime * 2.8) * 0.04;
+                
+                transformed.y += wave1 + wave2 + wave3;
                 `
-                vec3 viewDirW = normalize(cameraPosition - vWorldPos);
-                vec3 nrmW = normalize(vWorldNormal);
-
-                // フレネル：強すぎる反射は不自然な白帯になるため上限を抑える
-                float fresnel = pow(1.0 - max(dot(nrmW, viewDirW), 0.0), 5.0);
-                fresnel = clamp(fresnel, 0.0, 0.45);
-
-                // きらめき：1方向の単純な平面波だと縞模様になるので、複数の異なる周波数・角度を混ぜて
-                // 疑似ランダムなパターンに見せる
-                vec3 halfDir = normalize(uSunDir + viewDirW);
-                float spec = pow(max(dot(nrmW, halfDir), 0.0), 220.0);
-                float n1 = sin(vWorldPos.x * 7.3 + vWaveHeight * 30.0) * sin(vWorldPos.z * 5.1 - vWaveHeight * 22.0);
-                float n2 = sin(vWorldPos.x * 3.1 - vWorldPos.z * 4.7 + vWaveHeight * 18.0);
-                float sparkleMask = smoothstep(0.55, 0.95, n1 * 0.5 + n2 * 0.5 + 0.5);
-                float sparkle = spec * sparkleMask;
-
-                gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.58, 0.86, 0.93), fresnel * 0.5);
-                gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.12, 0.46, 0.63), clamp(1.0 - vWorldPos.y * 0.02, 0.0, 1.0) * 0.18);
-                gl_FragColor.rgb += vec3(1.0, 1.0, 1.0) * sparkle * 0.45;
-
-                #include <dithering_fragment>`
             );
         };
 
-        // --- 5. チャンク無限管理システム ---
-        const CHUNK_SIZE = 28; // 水深が深くなったためチャンクサイズを少し拡大して安定化
-        const RENDER_DIST = 8; 
+        // 採取オブジェクトマテリアル
+        const stoneMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.9, flatShading: true });
+        const crystalMat = new THREE.MeshStandardMaterial({ color: 0x00ccff, roughness: 0.2, metalness: 0.9, emissive: 0x003355, flatShading: true });
+        const appleMat = new THREE.MeshStandardMaterial({ color: 0xff1122, roughness: 0.3, flatShading: true });
+
+        const stoneGeo = new THREE.DodecahedronGeometry(0.5, 0); stoneGeo.scale(1.2, 0.8, 1);
+        const crystalGeo = new THREE.OctahedronGeometry(0.4, 0); crystalGeo.scale(0.6, 1.4, 0.6);
+        const appleGeo = new THREE.IcosahedronGeometry(0.18, 0);
+
+        // --- 5. パーティクルシステム ---
+        const particleCount = 200; 
+        const particleGeo = new THREE.BufferGeometry();
+        const particlePositions = new Float32Array(particleCount * 3);
+        const particleSpeeds = [];
+
+        for (let i = 0; i < particleCount; i++) {
+            particlePositions[i * 3] = (Math.random() - 0.5) * 60;
+            particlePositions[i * 3 + 1] = (Math.random() - 0.5) * 30 - 10;
+            particlePositions[i * 3 + 2] = (Math.random() - 0.5) * 60;
+            particleSpeeds.push({
+                x: (Math.random() - 0.5) * 0.08,
+                y: -Math.random() * 0.08 - 0.03,
+                z: (Math.random() - 0.5) * 0.08,
+                seed: Math.random() * 100
+            });
+        }
+
+        particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+        const particleCanvas = document.createElement('canvas');
+        particleCanvas.width = 16; particleCanvas.height = 16;
+        const pCtx = particleCanvas.getContext('2d');
+        const pGrad = pCtx.createRadialGradient(8, 8, 0, 8, 8, 8);
+        pGrad.addColorStop(0, 'rgba(255,255,255,0.9)');
+        pGrad.addColorStop(1, 'rgba(255,255,255,0)');
+        pCtx.fillStyle = pGrad; pCtx.fillRect(0,0,16,16);
+        const particleTex = new THREE.CanvasTexture(particleCanvas);
+
+        const particleMat = new THREE.PointsMaterial({
+            size: 0.3, map: particleTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.6
+        });
+        const particles = new THREE.Points(particleGeo, particleMat);
+        scene.add(particles);
+
+        // --- 6. チャンク無限描画システム ---
+        const CHUNK_SIZE = 30;
+        const RENDER_DIST = 3; 
         const chunks = new Map();
         const dummy = new THREE.Object3D();
+        const leafDummy = new THREE.Object3D();
 
         function generateChunk(cx, cz) {
             const chunkId = `${cx},${cz}`;
             if (chunks.has(chunkId)) return;
 
             const chunkGroup = new THREE.Group();
-            let rngState = (cx * 374761393 + cz * 668265263) ^ 0x9e3779b9;
-            function rng() {
-                rngState = (rngState ^ (rngState << 13)) ^ (rngState >>> 17) ^ (rngState << 5);
-                return ((rngState >>> 0) % 1000000) / 1000000;
-            }
+            const chunkBiome = getBiomeAt(cx * CHUNK_SIZE, cz * CHUNK_SIZE);
 
-            // ① 地面の生成（凄まじい高低差を滑らかに描くため16x16に分割強化）
-            const fGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, 16, 16);
+            // ① 地面の生成
+            const fGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, 24, 24);
             fGeo.rotateX(-Math.PI / 2);
             const pos = fGeo.attributes.position;
             const colors = [];
@@ -420,31 +1384,37 @@
                 pos.setY(i, height);
 
                 const depth = WATER_LEVEL - height;
-                // 自然な土・草のムラを出すための微小ノイズ（同じ座標なら毎回同じ値になる擬似ノイズ）
-                const noise = (smoothNoise(worldX * 0.35, worldZ * 0.35) * 0.08) - 0.04;
 
                 if (depth > 0) {
-                    // ★大深度グラデーション（奈落チューニング）
-                    // 0ｍ（浅瀬のきらめく砂）から、20ｍ（光の絶えたディープサファイア）へ無段階ブレンド。
-                    // 水際（depthが0に近い領域）の変化を緩やかにして、砂浜との境界線が硬く見えないようにする
-                    const depthFactor = Math.pow(Math.min(depth / 18.0, 1.0), 0.6);
+                    const depthFactor = Math.min(depth / 20.0, 1.0); 
                     
-                    const sandR = 0.92, sandG = 0.84, sandB = 0.68; // 浅瀬の白い砂浜
-                    const deepR = 0.01, deepG = 0.06, deepB = 0.14; // 完全なる深淵のディープブルー（ほぼ闇）
+                    const sandR = 0.88, sandG = 0.82, sandB = 0.68; // 元の濡れた砂地色
+                    const transitionR = 0.05, transitionG = 0.25, transitionB = 0.28; 
+                    const deepR = 0.003, deepG = 0.015, deepB = 0.04; 
                     
-                    const r = THREE.MathUtils.lerp(sandR, deepR, depthFactor);
-                    const g = THREE.MathUtils.lerp(sandG, deepG, depthFactor);
-                    const b = THREE.MathUtils.lerp(sandB, deepB, depthFactor);
-                    colors.push(r + noise * 0.3, g + noise * 0.3, b + noise * 0.3);
-                } else if (height < WATER_LEVEL + 1.6) {
-                    const beachMix = Math.max(0, (height - (WATER_LEVEL - 0.15)) / 1.75);
-                    const sandR = THREE.MathUtils.lerp(0.98, 0.84, beachMix);
-                    const sandG = THREE.MathUtils.lerp(0.92, 0.80, beachMix);
-                    const sandB = THREE.MathUtils.lerp(0.74, 0.60, beachMix);
-                    colors.push(sandR + noise, sandG + noise * 0.8, sandB + noise * 0.5); // 陸上のビーチ
+                    let r, g, b;
+                    if (depthFactor < 0.2) {
+                        const t = depthFactor / 0.2;
+                        r = THREE.MathUtils.lerp(sandR, transitionR, t);
+                        g = THREE.MathUtils.lerp(sandG, transitionG, t);
+                        b = THREE.MathUtils.lerp(sandB, transitionB, t);
+                    } else {
+                        const t = (depthFactor - 0.2) / 0.8;
+                        r = THREE.MathUtils.lerp(transitionR, deepR, t);
+                        g = THREE.MathUtils.lerp(transitionG, deepG, t);
+                        b = THREE.MathUtils.lerp(transitionB, deepB, t);
+                    }
+                    colors.push(r, g, b);
+                } else if (height < WATER_LEVEL + 0.6) {
+                    const shoreNoise = Math.sin((worldX + seedX) * 0.12) * Math.cos((worldZ + seedZ) * 0.12) * 0.03;
+                    colors.push(0.74 + shoreNoise, 0.70 + shoreNoise, 0.56 + shoreNoise);
+                } else if (chunkBiome.type === 'mountain') {
+                    const rockNoise = Math.sin((worldX + seedX) * 0.15) * Math.cos((worldZ + seedZ) * 0.15) * 0.03;
+                    colors.push(0.44 + rockNoise, 0.46 + rockNoise, 0.40 + rockNoise);
                 } else {
-                    const grassT = Math.min(1, Math.max(0, (height - WATER_LEVEL - 1.6) / 5.5));
-                    colors.push(0.20 + grassT * 0.08 + noise, 0.44 + grassT * 0.22 + noise * 1.2, 0.12 + grassT * 0.04 + noise * 0.6); // 大草原
+                    const greenNoise = Math.sin((worldX + seedX) * 0.2) * Math.cos((worldZ + seedZ) * 0.2) * 0.05;
+                    // 地面の芝生を元の美しいリアルな深緑に戻しました
+                    colors.push(0.12 + greenNoise, 0.28 + greenNoise, 0.08); 
                 }
             }
             fGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
@@ -452,127 +1422,268 @@
             
             const floorMesh = new THREE.Mesh(fGeo, floorMat);
             floorMesh.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
-            floorMesh.receiveShadow = true;
-            floorMesh.castShadow = true;
             chunkGroup.add(floorMesh);
 
-            // ② 【大深度リアル水面】波のうねりが見えるよう細かく分割
-            const wGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, 24, 24);
+            // ② 立体波立つ水面
+            const wGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, 32, 32);
             wGeo.rotateX(-Math.PI / 2);
             const waterMesh = new THREE.Mesh(wGeo, waterMat);
-            waterMesh.position.set(cx * CHUNK_SIZE, WATER_LEVEL + 0.03, cz * CHUNK_SIZE);
-            waterMesh.receiveShadow = true;
-            waterMesh.renderOrder = 10;
+            waterMesh.position.set(cx * CHUNK_SIZE, WATER_LEVEL, cz * CHUNK_SIZE);
             chunkGroup.add(waterMesh);
 
-            // ③ 草の配置（2方向のクロスプレーンでボリューム感を出す。色にも個体差を付与）
-            const maxGrass = 1400;
-            const instancedGrassA = new THREE.InstancedMesh(grassGeo, grassMat, maxGrass);
-            const instancedGrassB = new THREE.InstancedMesh(grassGeo2, grassMat, maxGrass);
-            const instancedGrassC = new THREE.InstancedMesh(grassGeoShort, grassMat, maxGrass);
-            const instancedGrassD = new THREE.InstancedMesh(grassGeoShort2, grassMat, maxGrass);
-            instancedGrassA.castShadow = true;
-            instancedGrassB.castShadow = true;
-            instancedGrassC.castShadow = true;
-            instancedGrassD.castShadow = true;
+            // ③ 陸地の草
+            const maxGrass = 250;
+            const instancedGrass = new THREE.InstancedMesh(grassGeo, grassMat, maxGrass);
             let grassCount = 0;
-            const tintColor = new THREE.Color();
+
+            // ④ 水中の草・海草
+            const maxKelp = 100;
+            const instancedKelp = new THREE.InstancedMesh(kelpGeo, kelpMat, maxKelp);
+            let kelpCount = 0;
+
+            // ⑤ 木の生成
+            const maxTrees = 12; 
+            const instancedTrunks = new THREE.InstancedMesh(trunkGeo, trunkMat, maxTrees);
+            const instancedLeaves = new THREE.InstancedMesh(leavesGeo, leavesMat, maxTrees);
+            instancedTrunks.userData.treeData = [];
+            instancedLeaves.userData.treeData = [];
+            let treeCount = 0;
 
             for (let i = 0; i < maxGrass; i++) {
-                const lx = (rng() - 0.5) * CHUNK_SIZE;
-                const lz = (rng() - 0.5) * CHUNK_SIZE;
+                const lx = (Math.random() - 0.5) * CHUNK_SIZE;
+                const lz = (Math.random() - 0.5) * CHUNK_SIZE;
+                const wx = lx + cx * CHUNK_SIZE;
+                const wz = lz + cz * CHUNK_SIZE;
+                const wy = getTerrainHeight(wx, wz);
+
+                // 草原の配置
+                if (wy > WATER_LEVEL + 0.1) {
+                    dummy.position.set(lx, wy - 0.02, lz);
+                    dummy.rotation.y = Math.random() * Math.PI;
+                    const s = 0.7 + Math.random() * 0.5;
+                    dummy.scale.set(s, s, s);
+                    dummy.updateMatrix();
+                    instancedGrass.setMatrixAt(grassCount, dummy.matrix);
+                    grassCount++;
+
+                    // リアル大木をランダム自動生成
+                    if (wy > WATER_LEVEL + 1.2 && treeCount < maxTrees && Math.random() < (0.04 * chunkBiome.density)) {
+                        
+                        const treeScaleX = 0.9 + Math.random() * 0.45; 
+                        const treeScaleY = 1.0 + Math.random() * 0.7;  
+                        const treeScaleZ = treeScaleX;
+
+                        // 木の幹の設定
+                        dummy.position.set(lx, wy - 0.05, lz);
+                        dummy.rotation.y = Math.random() * Math.PI;
+                        dummy.scale.set(treeScaleX, treeScaleY, treeScaleZ);
+                        dummy.updateMatrix();
+                        instancedTrunks.setMatrixAt(treeCount, dummy.matrix);
+
+                        // もこもこ3D葉の設定
+                        const leafOffsetHeight = 0.05 * treeScaleY;
+                        
+                        const leafScaleX = treeScaleX * (0.95 + Math.random() * 0.25);
+                        const leafScaleY = treeScaleY * (0.95 + Math.random() * 0.25);
+                        const leafScaleZ = treeScaleX * (0.95 + Math.random() * 0.25);
+
+                        leafDummy.position.set(lx, wy + leafOffsetHeight, lz);
+                        leafDummy.rotation.y = dummy.rotation.y;
+                        leafDummy.scale.set(leafScaleX, leafScaleY, leafScaleZ);
+                        leafDummy.updateMatrix();
+                        instancedLeaves.setMatrixAt(treeCount, leafDummy.matrix);
+
+                        instancedTrunks.userData.treeData.push({
+                            hp: 4,
+                            name: '大木',
+                            requiresAxe: true,
+                            fallen: false,
+                            removed: false
+                        });
+                        instancedLeaves.userData.treeData.push({
+                            removed: false
+                        });
+
+                        treeCount++;
+                    }
+                } else if (wy < WATER_LEVEL - 1.0 && wy > WATER_LEVEL - 8.0) {
+                    if (Math.random() < 0.3 && kelpCount < maxKelp) {
+                        dummy.position.set(lx, wy - 0.05, lz);
+                        dummy.rotation.y = Math.random() * Math.PI;
+                        const s = 0.6 + Math.random() * 0.8;
+                        dummy.scale.set(s, s, s);
+                        dummy.updateMatrix();
+                        instancedKelp.setMatrixAt(kelpCount, dummy.matrix);
+                        kelpCount++;
+                    }
+                }
+            }
+            
+            instancedGrass.count = grassCount;
+            instancedGrass.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
+            chunkGroup.add(instancedGrass);
+
+            instancedKelp.count = kelpCount;
+            instancedKelp.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
+            chunkGroup.add(instancedKelp);
+
+            instancedTrunks.count = treeCount;
+            instancedTrunks.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
+            chunkGroup.add(instancedTrunks);
+
+            instancedLeaves.count = treeCount;
+            instancedLeaves.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
+            chunkGroup.add(instancedLeaves);
+
+            harvestableTreeMeshes.push(instancedTrunks);
+            harvestableTreeMeshes.push(instancedLeaves);
+
+            if ((chunkBiome.type === 'mountain' || chunkBiome.type === 'cave') && Math.random() < chunkBiome.caveChance) {
+                const caveX = cx * CHUNK_SIZE + (Math.random() - 0.5) * 8;
+                const caveZ = cz * CHUNK_SIZE + (Math.random() - 0.5) * 8;
+                const caveY = getTerrainHeight(caveX, caveZ);
+                const caveGroup = new THREE.Group();
+                const rockMat = new THREE.MeshStandardMaterial({ color: 0x8a8a8a, roughness: 1.0 });
+                const chunk = new THREE.Mesh(new THREE.IcosahedronGeometry(1.45, 0), rockMat);
+                chunk.scale.set(1.4, 1.0, 1.1);
+                chunk.position.set(caveX, caveY + 0.9, caveZ);
+                caveGroup.add(chunk);
+                const chunk2 = new THREE.Mesh(new THREE.IcosahedronGeometry(0.9, 0), rockMat);
+                chunk2.scale.set(1.0, 0.75, 0.9);
+                chunk2.position.set(caveX + 1.0, caveY + 0.65, caveZ - 0.45);
+                caveGroup.add(chunk2);
+                const recess = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 8), new THREE.MeshBasicMaterial({ color: 0x1a1f24 }));
+                recess.scale.set(0.95, 0.7, 0.5);
+                recess.position.set(caveX - 0.35, caveY + 0.6, caveZ - 0.45);
+                caveGroup.add(recess);
+                caveGroup.userData = { debugCave: true };
+                chunkGroup.add(caveGroup);
+            }
+
+            // インタラクティブ採取アイテムのランダム配置
+                const density = Math.max(1, Math.floor(5 * chunkBiome.density)); 
+            for (let i = 0; i < density; i++) {
+                const lx = (Math.random() - 0.5) * CHUNK_SIZE;
+                const lz = (Math.random() - 0.5) * CHUNK_SIZE;
                 const wx = lx + cx * CHUNK_SIZE;
                 const wz = lz + cz * CHUNK_SIZE;
                 const wy = getTerrainHeight(wx, wz);
 
                 if (wy > WATER_LEVEL + 0.1) {
-                    dummy.position.set(lx, wy - 0.02, lz);
-                    dummy.rotation.y = rng() * Math.PI;
-                    const tall = rng() > 0.36;
-                    const s = tall ? (0.62 + rng() * 0.58) : (0.42 + rng() * 0.30);
-                    const yScale = tall ? (0.88 + rng() * 0.28) : (0.72 + rng() * 0.18);
-                    dummy.scale.set(s, s * yScale, s);
-                    dummy.updateMatrix();
-                    instancedGrassA.setMatrixAt(grassCount, dummy.matrix);
-                    instancedGrassB.setMatrixAt(grassCount, dummy.matrix);
-                    instancedGrassC.setMatrixAt(grassCount, dummy.matrix);
-                    instancedGrassD.setMatrixAt(grassCount, dummy.matrix);
+                    const roll = Math.random();
+                    if (roll < 0.4) {
+                        const treeGroup = new THREE.Group();
+                        
+                        const hFactor = 0.8 + Math.random() * 0.6;
+                        const treeScaleY = 1.0 + Math.random() * 0.7;
+                        const isComplexTree = Math.random() < 0.45;
+                        const tGeo = new THREE.CylinderGeometry(0.18, 0.35, 3.8 * hFactor, 5);
+                        tGeo.translate(0, 1.9 * hFactor, 0);
+                        const trunk = new THREE.Mesh(tGeo, trunkMat);
+                        trunk.castShadow = true;
+                        treeGroup.add(trunk);
 
-                    // 株ごとに緑の濃淡・色相をわずかにランダム化（単一テクスチャの単調さを解消）
-                    const tint = 0.92 + rng() * 0.22;
-                    const warmth = rng() * 0.18;
-                    tintColor.setRGB(tint, tint + warmth * 0.22, Math.max(tint - warmth * 0.38, 0));
-                    instancedGrassA.setColorAt(grassCount, tintColor);
-                    instancedGrassB.setColorAt(grassCount, tintColor);
-                    instancedGrassC.setColorAt(grassCount, tintColor);
-                    instancedGrassD.setColorAt(grassCount, tintColor);
-                    grassCount++;
-                }
-            }
-            instancedGrassA.count = grassCount;
-            instancedGrassB.count = grassCount;
-            instancedGrassC.count = grassCount;
-            instancedGrassD.count = grassCount;
-            instancedGrassA.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
-            instancedGrassB.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
-            instancedGrassC.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
-            instancedGrassD.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
-            chunkGroup.add(instancedGrassA);
-            chunkGroup.add(instancedGrassB);
-            chunkGroup.add(instancedGrassC);
-            chunkGroup.add(instancedGrassD);
+                        if (isComplexTree) {
+                            const crown1 = new THREE.Mesh(new THREE.SphereGeometry(1.05 * hFactor, 10, 8), leavesMat);
+                            crown1.position.set(0, 3.05 * hFactor, 0);
+                            crown1.scale.set(1.05, 0.95, 1.05);
+                            crown1.castShadow = true;
+                            treeGroup.add(crown1);
 
-            // ④ 木の配置（陸地のみ、川から離れた場所だけ）
-            const treeGridStep = 26;
-            const chunkMinX = cx * CHUNK_SIZE;
-            const chunkMaxX = chunkMinX + CHUNK_SIZE;
-            const chunkMinZ = cz * CHUNK_SIZE;
-            const chunkMaxZ = chunkMinZ + CHUNK_SIZE;
-            const minTreeX = Math.floor((chunkMinX - treeGridStep) / treeGridStep) - 1;
-            const maxTreeX = Math.floor((chunkMaxX + treeGridStep) / treeGridStep) + 1;
-            const minTreeZ = Math.floor((chunkMinZ - treeGridStep) / treeGridStep) - 1;
-            const maxTreeZ = Math.floor((chunkMaxZ + treeGridStep) / treeGridStep) + 1;
+                            const crown2 = new THREE.Mesh(new THREE.SphereGeometry(0.92 * hFactor, 10, 8), leavesMat);
+                            crown2.position.set(0.28 * hFactor, 4.0 * hFactor, -0.15 * hFactor);
+                            crown2.scale.set(0.95, 0.9, 0.95);
+                            crown2.castShadow = true;
+                            treeGroup.add(crown2);
 
-            for (let gx = minTreeX; gx <= maxTreeX; gx++) {
-                for (let gz = minTreeZ; gz <= maxTreeZ; gz++) {
-                    if (hash2(gx, gz) < 0.96) continue;
+                            const crown3 = new THREE.Mesh(new THREE.SphereGeometry(0.8 * hFactor, 10, 8), leavesMat);
+                            crown3.position.set(-0.22 * hFactor, 4.45 * hFactor, 0.18 * hFactor);
+                            crown3.scale.set(0.85, 0.82, 0.85);
+                            crown3.castShadow = true;
+                            treeGroup.add(crown3);
+                        } else {
+                            const leafGeo = new THREE.SphereGeometry(1.45 * hFactor, 10, 8);
+                            leafGeo.translate(0, 3.55 * hFactor, 0);
+                            const leaves = new THREE.Mesh(leafGeo, leavesMat);
+                            leaves.castShadow = true;
+                            treeGroup.add(leaves);
+                        }
 
-                    const wx = (gx + 0.5 + (hash2(gx + 11, gz + 7) - 0.5) * 0.5) * treeGridStep;
-                    const wz = (gz + 0.5 + (hash2(gx + 23, gz + 19) - 0.5) * 0.5) * treeGridStep;
-                    const localX = wx - cx * CHUNK_SIZE;
-                    const localZ = wz - cz * CHUNK_SIZE;
-                    if (wx < chunkMinX || wx >= chunkMaxX || wz < chunkMinZ || wz >= chunkMaxZ) continue;
+                        treeGroup.position.set(wx, wy - 0.05, wz);
+                        
+                        // カスタムデータ（採取情報）を持たせる
+                        treeGroup.userData = {
+                            type: 'wood',
+                            hp: 4, // 4回たたくと採取
+                            name: isComplexTree ? '大木' : '丸木',
+                            id: Math.random(),
+                            isTree: true,
+                            size: treeScaleY,
+                            requiresAxe: isComplexTree,
+                            treeKind: isComplexTree ? 'axe' : 'normal',
+                            fallProgress: 0,
+                            fallen: false
+                        };
 
-                    const worldHeight = getTerrainHeight(wx, wz);
-                    const slopeX = Math.abs(getTerrainHeight(wx + 2.5, wz) - worldHeight);
-                    const slopeZ = Math.abs(getTerrainHeight(wx, wz + 2.5) - worldHeight);
-                    const isLand = worldHeight > WATER_LEVEL + 4.0;
-                    const stableGround = slopeX < 1.6 && slopeZ < 1.6;
-                    const farFromWater = worldHeight > WATER_LEVEL + 6.0;
-                    if (!isLand || !stableGround || !farFromWater) continue;
+                        chunkGroup.add(treeGroup);
+                        harvestableObjects.push(treeGroup);
 
-                    const tree = new THREE.Group();
-                    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-                    const trunkScale = 1.05 + hash2(gx + 2, gz + 3) * 0.28;
-                    trunk.scale.setScalar(trunkScale);
-                    tree.add(trunk);
+                        if (Math.random() < 0.35) {
+                            const apple = new THREE.Mesh(appleGeo, appleMat);
+                            apple.position.set(wx + (Math.random() - 0.5) * 2, wy + 0.15, wz + (Math.random() - 0.5) * 2);
+                            apple.userData = {
+                                type: 'apple',
+                                hp: 1, 
+                                name: '甘いリンゴ',
+                                id: Math.random()
+                            };
+                            chunkGroup.add(apple);
+                            harvestableObjects.push(apple);
+                        }
 
-                    const crownCount = 2 + Math.floor(hash2(gx + 31, gz + 37) * 2);
-                    for (let c = 0; c < crownCount; c++) {
-                        const crown = new THREE.Mesh(foliageGeo, foliageMat);
-                        crown.position.set(
-                            (hash2(gx + c + 41, gz + 43) - 0.5) * 0.55,
-                            1.15 + c * 0.30 + (hash2(gx + c + 47, gz + 53) - 0.5) * 0.12,
-                            (hash2(gx + c + 59, gz + 61) - 0.5) * 0.55
-                        );
-                        crown.scale.setScalar(0.95 + hash2(gx + c + 67, gz + c + 71) * 0.25);
-                        tree.add(crown);
+                    } else if (roll < 0.65) {
+                        const stone = new THREE.Mesh(stoneGeo, stoneMat);
+                        stone.scale.setScalar(0.7 + Math.random() * 0.7);
+                        stone.position.set(wx, wy + 0.3, wz);
+                        stone.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+                        stone.userData = {
+                            type: 'stone',
+                            hp: 3, 
+                            name: '丸石の塊',
+                            id: Math.random()
+                        };
+                        chunkGroup.add(stone);
+                        harvestableObjects.push(stone);
                     }
-
-                    tree.position.set(localX, worldHeight - 0.02, localZ);
-                    tree.rotation.y = hash2(gx + 79, gz + 83) * Math.PI * 2;
-                    tree.rotation.z = (hash2(gx + 89, gz + 97) - 0.5) * 0.02;
-                    chunkGroup.add(tree);
+                    if ((chunkBiome.type === 'mountain' || chunkBiome.type === 'cave') && Math.random() < chunkBiome.oreChance) {
+                        const coal = new THREE.Mesh(new THREE.IcosahedronGeometry(0.45 + Math.random() * 0.3, 0), new THREE.MeshStandardMaterial({ color: 0x232323, roughness: 1.0 }));
+                        coal.position.set(wx + (Math.random() - 0.5) * 1.2, wy + 0.25, wz + (Math.random() - 0.5) * 1.2);
+                        coal.userData = { type: 'coal', hp: 2, name: '石炭の塊', id: Math.random() };
+                        chunkGroup.add(coal);
+                        harvestableObjects.push(coal);
+                    }
+                    if (chunkBiome.type === 'mountain' && Math.random() < 0.18) {
+                        const iron = new THREE.Mesh(new THREE.IcosahedronGeometry(0.5 + Math.random() * 0.25, 0), new THREE.MeshStandardMaterial({ color: 0xa86b3f, roughness: 1.0 }));
+                        iron.position.set(wx + (Math.random() - 0.5) * 1.1, wy + 0.3, wz + (Math.random() - 0.5) * 1.1);
+                        iron.userData = { type: 'ironOre', hp: 3, name: '鉄鉱石', id: Math.random() };
+                        chunkGroup.add(iron);
+                        harvestableObjects.push(iron);
+                    }
+                } 
+                else if (wy < WATER_LEVEL - 5.0) {
+                    if (Math.random() < 0.5) {
+                        const crystal = new THREE.Mesh(crystalGeo, crystalMat);
+                        crystal.position.set(wx, wy + 0.4, wz);
+                        crystal.rotation.set(0.1 + Math.random() * 0.2, Math.random() * Math.PI, 0.1);
+                        crystal.userData = {
+                            type: 'crystal',
+                            hp: 5, 
+                            name: '深淵のクリスタル',
+                            id: Math.random()
+                        };
+                        chunkGroup.add(crystal);
+                        harvestableObjects.push(crystal);
+                    }
                 }
             }
 
@@ -600,204 +1711,1433 @@
             }
         }
 
-        let startY = getTerrainHeight(0, 0);
-        if(startY < WATER_LEVEL) startY = WATER_LEVEL;
-        camera.position.set(0, startY + PLAYER_HEIGHT, 0);
+        function findSafeSpawnPosition() {
+            let spawnX = 0;
+            let spawnZ = 0;
+            let spawnY = getTerrainHeight(spawnX, spawnZ);
+            
+            if (spawnY >= WATER_LEVEL + 0.5) {
+                return { x: spawnX, y: spawnY, z: spawnZ };
+            }
+
+            let angle = 0;
+            let radius = 4;
+            const maxAttempts = 200; 
+            for (let i = 0; i < maxAttempts; i++) {
+                angle += 0.3;
+                radius += 0.45;
+                const testX = Math.cos(angle) * radius;
+                const testZ = Math.sin(angle) * radius;
+                const testY = getTerrainHeight(testX, testZ);
+                
+                if (testY >= WATER_LEVEL + 0.5) {
+                    spawnX = testX;
+                    spawnZ = testZ;
+                    spawnY = testY;
+                    break;
+                }
+            }
+            if (spawnY < WATER_LEVEL) spawnY = WATER_LEVEL + 1.5;
+            return { x: spawnX, y: spawnY, z: spawnZ };
+        }
+
+        const spawnPos = findSafeSpawnPosition();
+        camera.position.set(spawnPos.x, spawnPos.y + PLAYER_HEIGHT, spawnPos.z);
         updateChunks();
 
-        // --- 6. アニメーションループ ---
-        const clock = new THREE.Clock();
-        
-        function animate() {
-            requestAnimationFrame(animate);
-            const delta = Math.min(clock.getDelta(), 0.1);
-            const elapsed = clock.getElapsedTime();
-            sharedUniforms.uTime.value = elapsed;
-            waterUniforms.uTime.value = elapsed;
+        // --- 7. 採取・インタラクションロジック ---
 
-            if (controls.isLocked || touchActive) {
-                if (keys.w) controls.moveForward(14 * delta);
-                if (keys.s) controls.moveForward(-14 * delta);
-                if (keys.a) controls.moveRight(-11 * delta);
-                if (keys.d) controls.moveRight(11 * delta);
+        window.addEventListener('mousedown', (e) => {
+            if (!isGamePlaying || isInventoryOpen || (storageScreen && storageScreen.style.display === 'flex') || (furnaceScreen && furnaceScreen.style.display === 'block')) return;
+            if (e.button !== 0) return;
 
-                const currentTerrainY = getTerrainHeight(camera.position.x, camera.position.z);
-                
-                // ★物理演算も完全潜水対応！
-                // 本物の川の底までしっかりプレイヤーが沈み込めるように、地面の判定をそのまま適用！
-                const playerGroundY = currentTerrainY + PLAYER_HEIGHT;
+            const activeItem = playerInventory.hotbar[playerInventory.activeSlot];
+            if (activeItem && ITEMS[activeItem.id].edible) {
+                useEdibleItem(activeItem);
+                return;
+            }
 
-                if (!isGrounded) {
-                    velocityY -= GRAVITY * delta;
-                    camera.position.y += velocityY * delta;
+            if (focusedObject?.isInstancedTree) {
+                harvestInstancedTree(focusedObject.mesh, focusedObject.instanceId);
+            } else if (focusedObject) {
+                harvestObject(focusedObject);
+            }
+        });
 
-                    if (camera.position.y <= playerGroundY) {
-                        camera.position.y = playerGroundY;
-                        velocityY = 0;
-                        isGrounded = true;
-                    }
+        window.addEventListener('contextmenu', (e) => {
+            if (!isGamePlaying || isInventoryOpen || (storageScreen && storageScreen.style.display === 'flex') || (furnaceScreen && furnaceScreen.style.display === 'block')) return;
+            e.preventDefault();
+
+            if (focusedObject?.userData?.isPlacedChest) {
+                openStorage(focusedObject);
+                return;
+            }
+            if (focusedObject?.userData?.isPlacedFurnace) {
+                openFurnaceUI(focusedObject);
+                return;
+            }
+
+            const activeItem = playerInventory.hotbar[playerInventory.activeSlot];
+            if (!activeItem || !['workbench', 'chest', 'furnace'].includes(activeItem.id)) return;
+
+            raycaster.setFromCamera(mouse, camera);
+            const placementTargets = scene.children.filter(obj => obj.isMesh || obj.isGroup);
+            const intersects = raycaster.intersectObjects(placementTargets, true);
+            const hit = intersects.find(item => item.object !== renderer.domElement);
+            if (!hit) return;
+
+            const placePos = hit.point.clone();
+            if (activeItem.id === 'workbench') {
+                placeWorkbench(placePos);
+            } else if (activeItem.id === 'chest') {
+                placeChest(placePos);
+            } else if (activeItem.id === 'furnace') {
+                placeFurnace(placePos);
+            }
+
+            activeItem.count--;
+            if (activeItem.count <= 0) playerInventory.hotbar[playerInventory.activeSlot] = null;
+            updateHotbarUI();
+            renderInventoryGrid();
+        });
+
+        function useEdibleItem(item) {
+            if (survivalStats.hunger >= 100 && survivalStats.hp >= 100) {
+                showToast("すでにお腹はいっぱいです！");
+                return;
+            }
+
+            survivalStats.hunger = Math.min(100, survivalStats.hunger + ITEMS[item.id].recovery);
+            survivalStats.hp = Math.min(100, survivalStats.hp + 10); 
+            
+            item.count--;
+            if (item.count <= 0) {
+                playerInventory.hotbar[playerInventory.activeSlot] = null;
+            }
+            
+            showToast(`${ITEMS[item.id].icon} ${ITEMS[item.id].name}を食べた！`);
+            updateHotbarUI();
+            updateSurvivalStatusHUD();
+        }
+
+        function harvestObject(obj) {
+            const data = obj.userData;
+            if (!data) return;
+
+            if (data.falling || data.fallen) return;
+
+            const activeItem = playerInventory.hotbar[playerInventory.activeSlot];
+            const isHoldingAxe = activeItem && activeItem.id === 'axe';
+            if (data.isTree && data.requiresAxe && !isHoldingAxe) {
+                showToast("🪓 大きい木は斧が必要！");
+                return;
+            }
+
+            const origScale = obj.scale.clone();
+            obj.scale.multiplyScalar(data.isTree && isHoldingAxe ? 0.78 : 0.85);
+            setTimeout(() => {
+                if (obj) obj.scale.copy(origScale);
+            }, 80);
+
+            createSparkParticles(obj.position);
+
+            data.hp -= (data.isTree && isHoldingAxe) ? 2 : 1;
+
+            if (data.hp <= 0) {
+                if (data.isTree) {
+                    startTreeFall(obj);
+                    showToast(`🌳 ${data.name} が倒れはじめた！`);
                 } else {
-                    camera.position.y = playerGroundY;
+                    const itemType = data.type;
+                    addItemToInventory(itemType);
 
-                    if (keys.space) {
-                        velocityY = JUMP_FORCE;
-                        isGrounded = false;
+                    scene.remove(obj);
+                    if (obj.parent) obj.parent.remove(obj);
+
+                    harvestableObjects = harvestableObjects.filter(item => item !== obj);
+                    focusedObject = null;
+                    crosshair.classList.remove('target-active');
+                    actionTip.style.display = 'none';
+
+                    showToast(`➕ ${ITEMS[itemType].icon} ${ITEMS[itemType].name} を獲得！`);
+                }
+            } else {
+                showToast(`💥 ${data.name} を叩いている...`);
+            }
+        }
+
+        function harvestInstancedTree(mesh, instanceId) {
+            const treeData = mesh?.userData?.treeData?.[instanceId];
+            if (!treeData || treeData.removed || treeData.fallen) return;
+
+            const activeItem = playerInventory.hotbar[playerInventory.activeSlot];
+            const isHoldingAxe = activeItem && activeItem.id === 'axe';
+            if (treeData.requiresAxe && !isHoldingAxe) {
+                showToast("🪓 大きい木は斧が必要！");
+                return;
+            }
+
+            treeData.hp -= isHoldingAxe ? 2 : 1;
+            const tempMatrix = new THREE.Matrix4();
+            const tempPos = new THREE.Vector3();
+            const tempQuat = new THREE.Quaternion();
+            const tempScale = new THREE.Vector3();
+            mesh.getMatrixAt(instanceId, tempMatrix);
+            tempMatrix.decompose(tempPos, tempQuat, tempScale);
+            createSparkParticles(tempPos);
+
+            if (treeData.hp <= 0) {
+                treeData.fallen = true;
+                treeData.removed = true;
+                addItemToInventory('wood', 2);
+                showToast(`➕ ${ITEMS.wood.icon} ${ITEMS.wood.name} を獲得！`);
+
+                const hidden = new THREE.Matrix4();
+                hidden.makeScale(0, 0, 0);
+                if (mesh.geometry?.type === 'CylinderGeometry' || mesh.geometry?.type === 'InstancedBufferGeometry') {
+                    mesh.setMatrixAt(instanceId, hidden);
+                    mesh.instanceMatrix.needsUpdate = true;
+                }
+                if (mesh.userData?.treeData && mesh.userData.treeData[instanceId]) {
+                    mesh.userData.treeData[instanceId].removed = true;
+                }
+
+                const pairMeshes = harvestableTreeMeshes.filter(item => item !== mesh);
+                pairMeshes.forEach(otherMesh => {
+                    if (otherMesh?.count > instanceId && otherMesh?.userData?.treeData?.[instanceId] !== undefined) {
+                        otherMesh.setMatrixAt(instanceId, hidden);
+                        otherMesh.instanceMatrix.needsUpdate = true;
+                        if (otherMesh.userData.treeData[instanceId]) otherMesh.userData.treeData[instanceId].removed = true;
+                    }
+                });
+                focusedObject = null;
+                crosshair.classList.remove('target-active');
+                actionTip.style.display = 'none';
+            } else {
+                showToast(`💥 ${treeData.name} を叩いている...`);
+            }
+        }
+
+        function placeWorkbench(position) {
+            const material = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 1.0 });
+            const base = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.25, 1.4), material);
+            const top = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.15, 1.5), new THREE.MeshStandardMaterial({ color: 0xb07b42, roughness: 1.0 }));
+            base.castShadow = true;
+            top.castShadow = true;
+            const group = new THREE.Group();
+            group.add(base);
+            top.position.y = 0.2;
+            group.add(top);
+            group.position.set(position.x, getTerrainHeight(position.x, position.z), position.z);
+            group.userData = { isPlacedWorkbench: true, name: '作業台' };
+            scene.add(group);
+            placedWorkbenches.push(group);
+            placedInteractables.push(group);
+            showToast('🛠️ 作業台を設置');
+        }
+
+        function placeChest(position) {
+            const material = new THREE.MeshStandardMaterial({ color: 0x6a4b2c, roughness: 1.0 });
+            const chest = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.0, 1.0), material);
+            chest.castShadow = true;
+            chest.position.set(position.x, getTerrainHeight(position.x, position.z) + 0.5, position.z);
+            chest.userData = { isPlacedChest: true, name: '収納箱', storage: Array(9).fill(null) };
+            scene.add(chest);
+            placedChests.push(chest);
+            placedInteractables.push(chest);
+            showToast('🧰 収納箱を設置');
+        }
+
+        function placeFurnace(position) {
+            const body = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.0, 1.1), new THREE.MeshStandardMaterial({ color: 0x565656, roughness: 1.0 }));
+            const top = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.15, 1.15), new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 1.0 }));
+            const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.1), new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 1.0 }));
+            const group = new THREE.Group();
+            body.castShadow = true;
+            top.castShadow = true;
+            mouth.castShadow = true;
+            group.add(body);
+            top.position.y = 0.55;
+            group.add(top);
+            mouth.position.set(0, -0.05, 0.58);
+            group.add(mouth);
+            group.position.set(position.x, getTerrainHeight(position.x, position.z), position.z);
+            group.userData = { isPlacedFurnace: true, name: 'かまど' };
+            scene.add(group);
+            placedInteractables.push(group);
+            showToast('🏺 かまどを設置');
+        }
+
+        function spawnBiomeDebug() {
+            if (gameMode !== 'creative') {
+                showToast('クリエイティブ限定です');
+                return;
+            }
+
+            const baseX = camera.position.x + camera.getWorldDirection(new THREE.Vector3()).x * 12;
+            const baseZ = camera.position.z + camera.getWorldDirection(new THREE.Vector3()).z * 12;
+
+            forceMountainPatch(baseX - 18, baseZ + 8);
+            const caveX = baseX + 14;
+            const caveZ = baseZ - 16;
+            forceCavePatch(caveX, caveZ);
+
+            showToast('🧭 山/洞窟デバッグを生成');
+            updateChunks();
+        }
+
+        function goToCreativeCave() {
+            if (gameMode !== 'creative') {
+                showToast('クリエイティブ限定です');
+                return;
+            }
+
+            creativeCaveRooms.forEach(room => {
+                if (room?.userData?.harvestables) {
+                    harvestableObjects = harvestableObjects.filter(item => !room.userData.harvestables.includes(item));
+                }
+                if (room && room.parent) room.parent.remove(room);
+            });
+            creativeCaveRooms.length = 0;
+
+            const forward = new THREE.Vector3();
+            camera.getWorldDirection(forward);
+            const targetX = camera.position.x + forward.x * 14;
+            const targetZ = camera.position.z + forward.z * 14;
+            const surfaceY = getTerrainHeight(targetX, targetZ);
+            const caveY = surfaceY - 16;
+
+            const caveRoom = new THREE.Group();
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0x7f7a70, roughness: 1.0 });
+            const darkMat = new THREE.MeshStandardMaterial({ color: 0x121417, roughness: 1.0 });
+            const accentMat = new THREE.MeshStandardMaterial({ color: 0x5e5a55, roughness: 1.0 });
+
+            const floor = new THREE.Mesh(new THREE.CylinderGeometry(7.5, 8.5, 1.5, 14, 1), accentMat);
+            floor.position.set(0, -2.0, 0);
+            floor.rotation.z = Math.PI / 2;
+            caveRoom.add(floor);
+
+            const ceiling = new THREE.Mesh(new THREE.SphereGeometry(7.8, 14, 10), wallMat);
+            ceiling.scale.set(1.4, 0.65, 1.3);
+            ceiling.position.set(0, 4.0, 0);
+            caveRoom.add(ceiling);
+
+            const backWall = new THREE.Mesh(new THREE.SphereGeometry(5.4, 12, 10), wallMat);
+            backWall.scale.set(1.1, 0.95, 0.55);
+            backWall.position.set(0, 1.2, -5.5);
+            caveRoom.add(backWall);
+
+            const sideWallL = new THREE.Mesh(new THREE.SphereGeometry(5.0, 12, 10), wallMat);
+            sideWallL.scale.set(0.45, 1.0, 1.2);
+            sideWallL.position.set(-7.0, 0.8, 0.2);
+            caveRoom.add(sideWallL);
+
+            const sideWallR = new THREE.Mesh(new THREE.SphereGeometry(5.0, 12, 10), wallMat);
+            sideWallR.scale.set(0.45, 1.0, 1.2);
+            sideWallR.position.set(7.0, 0.8, 0.2);
+            caveRoom.add(sideWallR);
+
+            const entranceTunnel = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.8, 8.0, 12), darkMat);
+            entranceTunnel.rotation.x = Math.PI / 2;
+            entranceTunnel.position.set(0, -0.2, 8.0);
+            caveRoom.add(entranceTunnel);
+
+            const exitTunnel = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.4, 8.0, 12), darkMat);
+            exitTunnel.rotation.x = Math.PI / 2;
+            exitTunnel.position.set(0, -0.2, -8.0);
+            caveRoom.add(exitTunnel);
+
+            for (let i = 0; i < 8; i++) {
+                const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(0.8 + Math.random() * 0.7, 0), accentMat);
+                rock.position.set((Math.random() - 0.5) * 10, -1.3 + Math.random() * 4.5, (Math.random() - 0.5) * 10);
+                rock.rotation.set(Math.random(), Math.random(), Math.random());
+                caveRoom.add(rock);
+            }
+
+            const orePositions = [
+                { x: -4, y: -0.8, z: -3.5, type: 'coal' },
+                { x: 4, y: -0.3, z: -2.0, type: 'ironOre' },
+                { x: -3.5, y: 0.4, z: 3.5, type: 'coal' }
+            ];
+            const caveHarvestables = [];
+            orePositions.forEach(entry => {
+                const ore = new THREE.Mesh(
+                    new THREE.IcosahedronGeometry(0.45, 0),
+                    new THREE.MeshStandardMaterial({ color: entry.type === 'coal' ? 0x202020 : 0x9f683c, roughness: 1.0 })
+                );
+                ore.position.set(entry.x, entry.y, entry.z);
+                ore.userData = { type: entry.type, hp: entry.type === 'coal' ? 2 : 3, name: entry.type === 'coal' ? '石炭' : '鉄鉱石', id: Math.random() };
+                caveRoom.add(ore);
+                harvestableObjects.push(ore);
+                caveHarvestables.push(ore);
+            });
+
+            caveRoom.position.set(targetX, caveY, targetZ);
+            caveRoom.userData = { debugCaveRoom: true, harvestables: caveHarvestables };
+            scene.add(caveRoom);
+            creativeCaveRooms.push(caveRoom);
+
+            camera.position.set(targetX, caveY + 0.8, targetZ + 2.5);
+            velocity.set(0, 0, 0);
+            isGrounded = false;
+
+            scene.fog.color.setHex(0x071018);
+            scene.fog.density = 0.06;
+            scene.background.setHex(0x071018);
+
+            showToast('🕳️ 洞窟へ移動');
+        }
+
+        function forceMountainPatch(x, z) {
+            const y = getTerrainHeight(x, z);
+            const group = new THREE.Group();
+            const rockMat = new THREE.MeshStandardMaterial({ color: 0x7a7a7a, roughness: 1.0 });
+            for (let i = 0; i < 4; i++) {
+                const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(3.2 - i * 0.35, 0), rockMat);
+                rock.position.set(x + (Math.random() - 0.5) * 4.5, y + i * 1.8, z + (Math.random() - 0.5) * 4.5);
+                rock.scale.set(1.5 - i * 0.12, 1.0 - i * 0.08, 1.5 - i * 0.12);
+                rock.castShadow = true;
+                group.add(rock);
+            }
+            group.userData = { debugBiome: 'mountain' };
+            scene.add(group);
+        }
+
+        function forceCavePatch(x, z) {
+            const y = getTerrainHeight(x, z);
+            const group = new THREE.Group();
+            const stoneMat = new THREE.MeshStandardMaterial({ color: 0x4e4e4e, roughness: 1.0 });
+            const open = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.2, 5.5, 10), new THREE.MeshBasicMaterial({ color: 0x071018 }));
+            open.rotation.x = Math.PI / 2;
+            open.position.set(x, y + 0.9, z);
+            group.add(open);
+            const rim = new THREE.Mesh(new THREE.TorusGeometry(2.0, 0.45, 6, 12), stoneMat);
+            rim.rotation.x = Math.PI / 2;
+            rim.position.set(x, y + 0.95, z - 1.1);
+            group.add(rim);
+            group.userData = { debugBiome: 'cave' };
+            scene.add(group);
+        }
+
+        function openStorage(chest) {
+            openChest = chest;
+            isInventoryOpen = true;
+            storagePage = 0;
+            storageScreen.style.display = 'flex';
+            controls.unlock();
+            renderStorageUI();
+        }
+
+        function closeStorage() {
+            openChest = null;
+            isInventoryOpen = false;
+            storageScreen.style.display = 'none';
+            try { controls.lock(); } catch (e) {}
+        }
+
+        function openFurnaceUI(furnace) {
+            openFurnace = furnace;
+            isInventoryOpen = true;
+            furnaceScreen.style.display = 'block';
+            controls.unlock();
+        }
+
+        function closeFurnaceUI() {
+            openFurnace = null;
+            isInventoryOpen = false;
+            furnaceScreen.style.display = 'none';
+            try { controls.lock(); } catch (e) {}
+        }
+
+        function smeltIron() {
+            const oreCount = getItemCount('ironOre');
+            const coalCount = getItemCount('coal');
+            if (oreCount < 1 || coalCount < 1) {
+                showToast('鉄鉱石と石炭が必要です');
+                return;
+            }
+            const oreOk = consumeFromInventory('ironOre', 1);
+            const coalOk = consumeFromInventory('coal', 1);
+            if (oreOk && coalOk) {
+                addItemToInventory('ironIngot', 1);
+                showToast('🔥 鉄インゴットを作成');
+            }
+        }
+
+        function consumeFromInventory(itemId, amount) {
+            let remaining = amount;
+            for (let i = 0; i < playerInventory.hotbar.length && remaining > 0; i++) {
+                const slot = playerInventory.hotbar[i];
+                if (!slot || slot.id !== itemId) continue;
+                const used = Math.min(slot.count, remaining);
+                slot.count -= used;
+                remaining -= used;
+                if (slot.count <= 0) playerInventory.hotbar[i] = null;
+            }
+            for (let i = 0; i < playerInventory.bag.length && remaining > 0; i++) {
+                const slot = playerInventory.bag[i];
+                if (!slot || slot.id !== itemId) continue;
+                const used = Math.min(slot.count, remaining);
+                slot.count -= used;
+                remaining -= used;
+                if (slot.count <= 0) playerInventory.bag[i] = null;
+            }
+            updateHotbarUI();
+            return remaining === 0;
+        }
+
+        function renderStorageUI() {
+            const chestGrid = document.getElementById('chest-grid');
+            const bagGrid = document.getElementById('bag-grid');
+            if (!chestGrid || !bagGrid || !openChest) return;
+            chestGrid.innerHTML = '';
+            bagGrid.innerHTML = '';
+
+            const storageSlots = openChest.userData.storage;
+            const pageSize = 9;
+            const totalPages = Math.max(1, Math.ceil(storageSlots.length / pageSize));
+            storagePage = Math.min(storagePage, totalPages - 1);
+            if (storagePageLabel) storagePageLabel.textContent = `${storagePage + 1} / ${totalPages}`;
+
+            const pageItems = storageSlots.slice(storagePage * pageSize, storagePage * pageSize + pageSize);
+            pageItems.forEach((item, localIdx) => {
+                const idx = storagePage * pageSize + localIdx;
+                const slot = document.createElement('div');
+                slot.className = 'inv-slot' + (item ? '' : ' empty');
+                if (item) {
+                    slot.innerHTML = `<span class="slot-icon">${ITEMS[item.id].icon}</span><span class="slot-count">${item.count > 1 ? item.count : ''}</span>`;
+                    slot.addEventListener('click', () => moveChestToBag(idx));
+                }
+                chestGrid.appendChild(slot);
+            });
+
+            playerInventory.bag.forEach((item, idx) => {
+                const slot = document.createElement('div');
+                slot.className = 'inv-slot' + (item ? '' : ' empty');
+                if (item) {
+                    slot.innerHTML = `<span class="slot-icon">${ITEMS[item.id].icon}</span><span class="slot-count">${item.count > 1 ? item.count : ''}</span>`;
+                    slot.addEventListener('click', () => moveBagToChest(idx));
+                }
+                bagGrid.appendChild(slot);
+            });
+        }
+
+        function moveChestToBag(chestIdx) {
+            if (!openChest) return;
+            const item = openChest.userData.storage[chestIdx];
+            if (!item) return;
+            if (addItemToInventory(item.id, item.count, true)) {
+                openChest.userData.storage[chestIdx] = null;
+                renderStorageUI();
+            }
+        }
+
+        function moveBagToChest(bagIdx) {
+            if (!openChest) return;
+            const item = playerInventory.bag[bagIdx];
+            if (!item) return;
+            const storage = openChest.userData.storage;
+            for (let i = 0; i < storage.length; i++) {
+                if (!storage[i]) {
+                    storage[i] = item;
+                    playerInventory.bag[bagIdx] = null;
+                    renderStorageUI();
+                    renderInventoryGrid();
+                    return;
+                }
+            }
+            showToast('収納箱がいっぱいです');
+        }
+
+        function pageStorage(delta) {
+            if (!openChest) return;
+            const totalPages = Math.max(1, Math.ceil(openChest.userData.storage.length / 9));
+            storagePage = (storagePage + delta + totalPages) % totalPages;
+            renderStorageUI();
+        }
+
+        function startTreeFall(treeGroup) {
+            const data = treeGroup.userData;
+            if (!data || data.falling || data.fallen) return;
+            data.falling = true;
+            data.fallProgress = 0;
+            data.rewardGiven = false;
+
+            const groundY = treeGroup.position.y;
+            const startRotation = treeGroup.rotation.z;
+            const fallDirection = Math.random() < 0.5 ? 1 : -1;
+            const leafBurst = treeGroup.children.find(child => child.geometry && child.geometry.type.includes('Icosahedron'));
+
+            fallingTrees.push({
+                treeGroup,
+                groundY,
+                startRotation,
+                fallDirection,
+                leafBurst,
+                topOffset: 3.4
+            });
+
+            createTreeFallParticles(treeGroup.position);
+        }
+
+        function createTreeFallParticles(pos) {
+            const count = 18;
+            const geom = new THREE.SphereGeometry(0.08, 6, 6);
+            const mat = new THREE.MeshBasicMaterial({ color: 0x8a5a2b });
+            const group = new THREE.Group();
+
+            for (let i = 0; i < count; i++) {
+                const particle = new THREE.Mesh(geom, mat);
+                particle.position.copy(pos).add(new THREE.Vector3(
+                    (Math.random() - 0.5) * 1.2,
+                    1.2 + Math.random() * 2.0,
+                    (Math.random() - 0.5) * 1.2
+                ));
+                particle.userData = {
+                    vel: new THREE.Vector3(
+                        (Math.random() - 0.5) * 3,
+                        Math.random() * 4 + 1,
+                        (Math.random() - 0.5) * 3
+                    )
+                };
+                group.add(particle);
+            }
+
+            scene.add(group);
+            const start = performance.now();
+            const step = () => {
+                const elapsed = (performance.now() - start) / 1000;
+                group.children.forEach(particle => {
+                    particle.userData.vel.y -= 10.5 * 0.016;
+                    particle.position.addScaledVector(particle.userData.vel, 0.016);
+                });
+                group.rotation.y += 0.01;
+                if (elapsed > 1.0) {
+                    scene.remove(group);
+                } else {
+                    requestAnimationFrame(step);
+                }
+            };
+            step();
+        }
+
+        function addItemToInventory(type, amount = 1, silent = false) {
+            if (!ITEMS[type]) {
+                showToast(`未定義アイテム: ${type}`);
+                return false;
+            }
+            let remaining = amount;
+
+            for (let i = 0; i < playerInventory.hotbar.length && remaining > 0; i++) {
+                const slot = playerInventory.hotbar[i];
+                if (slot && slot.id === type) {
+                    slot.count += remaining;
+                    remaining = 0;
+                }
+            }
+
+            for (let i = 0; i < playerInventory.hotbar.length && remaining > 0; i++) {
+                if (!playerInventory.hotbar[i]) {
+                    playerInventory.hotbar[i] = { id: type, count: remaining };
+                    remaining = 0;
+                }
+            }
+
+            for (let i = 0; i < playerInventory.bag.length && remaining > 0; i++) {
+                const slot = playerInventory.bag[i];
+                if (slot && slot.id === type) {
+                    slot.count += remaining;
+                    remaining = 0;
+                }
+            }
+
+            for (let i = 0; i < playerInventory.bag.length && remaining > 0; i++) {
+                if (!playerInventory.bag[i]) {
+                    playerInventory.bag[i] = { id: type, count: remaining };
+                    remaining = 0;
+                }
+            }
+
+            if (remaining > 0) {
+                if (!silent) showToast("🎒 バッグがいっぱいで入りません！");
+                return false;
+            }
+            updateHotbarUI();
+            return true;
+        }
+
+        function createSparkParticles(pos) {
+            const count = 10;
+            const geom = new THREE.BoxGeometry(0.12, 0.12, 0.12);
+            const mat = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
+            const group = new THREE.Group();
+
+            for (let i = 0; i < count; i++) {
+                const p = new THREE.Mesh(geom, mat);
+                p.position.copy(pos).add(new THREE.Vector3(
+                    (Math.random() - 0.5) * 1.5,
+                    Math.random() * 1.5,
+                    (Math.random() - 0.5) * 1.5
+                ));
+                p.userData = {
+                    vel: new THREE.Vector3((Math.random() - 0.5) * 4, Math.random() * 4 + 2, (Math.random() - 0.5) * 4)
+                };
+                group.add(p);
+            }
+            scene.add(group);
+
+            const start = performance.now();
+            const pAnim = () => {
+                const elapsed = (performance.now() - start) / 1000;
+                if (elapsed > 0.6) {
+                    scene.remove(group);
+                } else {
+                    group.children.forEach(p => {
+                        p.position.addScaledVector(p.userData.dir || new THREE.Vector3(0,-9.8,0), 0.016);
+                        p.userData.vel.y -= 9.8 * 0.016; 
+                        p.position.addScaledVector(p.userData.vel, 0.016);
+                    });
+                    requestAnimationFrame(pAnim);
+                }
+            };
+            pAnim();
+        }
+
+        // --- 8. UI描画・連携ロジック ---
+
+        function updateHotbarUI() {
+            const slots = document.querySelectorAll('.hotbar-slot');
+            slots.forEach((slot, idx) => {
+                const data = playerInventory.hotbar[idx];
+                const iconSpan = slot.querySelector('.slot-icon');
+                const countSpan = slot.querySelector('.slot-count');
+
+                if (data && ITEMS[data.id]) {
+                    iconSpan.textContent = ITEMS[data.id].icon;
+                    countSpan.textContent = data.count > 1 ? data.count : '';
+                    slot.title = `${ITEMS[data.id].name} — ${ITEMS[data.id].hint || ''}`;
+                } else {
+                    iconSpan.textContent = '';
+                    countSpan.textContent = '';
+                    slot.title = '';
+                }
+            });
+        }
+
+        function getItemSortWeight(id) {
+            const order = ['wood', 'plank', 'stick', 'stone', 'coal', 'ironOre', 'ironIngot', 'crystal', 'apple', 'axe', 'pickaxe', 'shovel', 'stoneAxe', 'stonePickaxe', 'workbench', 'furnace', 'torch', 'chest'];
+            const idx = order.indexOf(id);
+            return idx === -1 ? 999 : idx;
+        }
+
+        function sortStackArray(slots) {
+            return slots
+                .filter(Boolean)
+                .sort((a, b) => {
+                    const diff = getItemSortWeight(a.id) - getItemSortWeight(b.id);
+                    if (diff !== 0) return diff;
+                    return b.count - a.count;
+                });
+        }
+
+        function sortInventory() {
+            const allItems = [...playerInventory.hotbar.filter(Boolean), ...playerInventory.bag.filter(Boolean)];
+            const sorted = sortStackArray(allItems);
+            playerInventory.hotbar = [null, null, null, null, null];
+            playerInventory.bag = Array(24).fill(null);
+
+            sorted.forEach(item => {
+                addItemToInventory(item.id, item.count, true);
+            });
+
+            updateHotbarUI();
+            renderInventoryGrid();
+            showToast('✨ インベントリを自動整理しました');
+        }
+
+        function dropActiveItem() {
+            const item = playerInventory.hotbar[playerInventory.activeSlot];
+            if (!item) {
+                showToast('捨てるアイテムがありません');
+                return;
+            }
+            item.count--;
+            if (item.count <= 0) playerInventory.hotbar[playerInventory.activeSlot] = null;
+            updateHotbarUI();
+            renderInventoryGrid();
+            showToast(`🗑️ ${ITEMS[item.id].name} を1個捨てた`);
+        }
+
+        function renderInventoryGrid() {
+            const mainGrid = document.getElementById('main-inventory-grid');
+            const hotbarGrid = document.getElementById('hotbar-inventory-grid');
+            
+            mainGrid.innerHTML = '';
+            hotbarGrid.innerHTML = '';
+
+            const subTitle = document.getElementById('inv-main-title');
+            if (gameMode === 'creative') {
+                subTitle.textContent = "無限アイテムパレット (クリックしてホットバーにコピー)";
+                Object.values(ITEMS).forEach(item => {
+                    const slot = document.createElement('div');
+                    slot.className = 'inv-slot';
+                    slot.innerHTML = `<span class="slot-icon">${item.icon}</span><span class="slot-count">∞</span>`;
+                    slot.addEventListener('click', () => {
+                        const targetIdx = playerInventory.activeSlot;
+                        playerInventory.hotbar[targetIdx] = { id: item.id, count: 64 };
+                        updateHotbarUI();
+                        renderInventoryGrid();
+                    });
+                    mainGrid.appendChild(slot);
+                });
+            } else {
+                subTitle.textContent = "バックパック (クリックして下のホットバーと中身を入れ替え)";
+                playerInventory.bag.forEach((item, idx) => {
+                    const slot = document.createElement('div');
+                    slot.className = 'inv-slot' + (item ? '' : ' empty');
+                    if (item) {
+                        slot.innerHTML = `<span class="slot-icon">${ITEMS[item.id].icon}</span><span class="slot-count">${item.count > 1 ? item.count : ''}</span>`;
+                        slot.addEventListener('click', () => swapItemBagToHotbar(idx));
+                    }
+                    mainGrid.appendChild(slot);
+                });
+            }
+
+            playerInventory.hotbar.forEach((item, idx) => {
+                const slot = document.createElement('div');
+                slot.className = 'inv-slot' + (item ? '' : ' empty') + (idx === playerInventory.activeSlot ? ' active' : '');
+                slot.style.border = idx === playerInventory.activeSlot ? '2px solid #00ffcc' : '';
+                
+                if (item) {
+                    slot.innerHTML = `<span class="slot-icon">${ITEMS[item.id].icon}</span><span class="slot-count">${item.count > 1 ? item.count : ''}</span>`;
+                }
+                slot.addEventListener('click', () => {
+                    if (isInventoryOpen) {
+                        playerInventory.activeSlot = idx;
+                        updateHotbarUI();
+                        renderInventoryGrid();
+                        return;
+                    }
+
+                    if (item) {
+                        if (gameMode === 'creative') {
+                            playerInventory.hotbar[idx] = null;
+                        } else {
+                            moveHotbarToBag(idx);
+                        }
+                        updateHotbarUI();
+                        renderInventoryGrid();
+                    }
+                });
+                hotbarGrid.appendChild(slot);
+            });
+
+            renderCraftingUI();
+        }
+
+        function getItemCount(itemId) {
+            let count = 0;
+            playerInventory.hotbar.forEach(item => {
+                if (item && item.id === itemId) count += item.count;
+            });
+            playerInventory.bag.forEach(item => {
+                if (item && item.id === itemId) count += item.count;
+            });
+            return count;
+        }
+
+        function hasNearbyWorkbench() {
+            if (gameMode === 'creative') return true;
+            const playerPos = camera.position;
+            return placedWorkbenches.some(workbench => workbench && workbench.position.distanceTo(playerPos) < 4.5);
+        }
+
+        function hasRecipeMaterials(recipe) {
+            return recipe.inputs.every(input => getItemCount(input.id) >= input.count);
+        }
+
+        function consumeItems(inputs) {
+            inputs.forEach(input => {
+                let remaining = input.count;
+
+                for (const slot of playerInventory.hotbar) {
+                    if (!slot || slot.id !== input.id || remaining <= 0) continue;
+                    const used = Math.min(slot.count, remaining);
+                    slot.count -= used;
+                    remaining -= used;
+                }
+                for (let i = 0; i < playerInventory.hotbar.length; i++) {
+                    if (playerInventory.hotbar[i] && playerInventory.hotbar[i].count <= 0) {
+                        playerInventory.hotbar[i] = null;
                     }
                 }
 
-                updateChunks();
+                for (let i = 0; i < playerInventory.bag.length && remaining > 0; i++) {
+                    const slot = playerInventory.bag[i];
+                    if (!slot || slot.id !== input.id) continue;
+                    const used = Math.min(slot.count, remaining);
+                    slot.count -= used;
+                    remaining -= used;
+                    if (slot.count <= 0) playerInventory.bag[i] = null;
+                }
+            });
+        }
+
+        function craftSelectedRecipe() {
+            if (gameMode === 'creative') {
+                showToast('クリエイティブでは素材消費なしで作れます');
             }
 
-            // 太陽の「方向」は固定したまま、影の描画範囲（シャドウカメラ）だけをプレイヤーに追従させる。
-            // 太陽位置そのものを動かすと光の向きが回転してしまい、木や草が逆光で真っ黒になるため、
-            // オフセットベクトルを保ったまま平行移動するだけにする。
-            sunLight.position.set(camera.position.x + SUN_OFFSET.x, camera.position.y + SUN_OFFSET.y, camera.position.z + SUN_OFFSET.z);
-            sunTarget.position.set(camera.position.x, camera.position.y, camera.position.z);
-            sunLight.target.updateMatrixWorld();
+            const recipe = CRAFTING_RECIPES.find(entry => entry.id === selectedRecipeId);
+            if (!recipe) return;
+
+            const hasWorkbench = hasNearbyWorkbench();
+            if (recipe.station && gameMode !== 'creative' && !hasWorkbench) {
+                showToast('作業台が必要です');
+                return;
+            }
+
+            if (gameMode !== 'creative' && !hasRecipeMaterials(recipe)) {
+                showToast('素材が足りません');
+                return;
+            }
+
+            if (gameMode !== 'creative') {
+                consumeItems(recipe.inputs);
+            }
+
+            addItemToInventory(recipe.output.id, recipe.output.count);
+            showToast(`🛠️ ${ITEMS[recipe.output.id].name} を作成！`);
+            updateHotbarUI();
+            renderInventoryGrid();
+        }
+
+        function renderCraftingUI() {
+            if (!craftList || !craftButton) return;
+            craftList.innerHTML = '';
+            const hasWorkbench = hasNearbyWorkbench();
+            const term = (craftSearchTerm || '').trim().toLowerCase();
+
+            CRAFTING_RECIPES.forEach(recipe => {
+                const recipeText = `${recipe.name} ${recipe.description} ${ITEMS[recipe.output.id].name}`.toLowerCase();
+                if (term && !recipeText.includes(term)) return;
+                const card = document.createElement('div');
+                card.className = 'craft-card' + (recipe.id === selectedRecipeId ? ' active' : '');
+                const needsWorkbench = !!recipe.station;
+                const unlocked = !needsWorkbench || hasWorkbench || gameMode === 'creative';
+                const inputText = recipe.inputs.map(input => `${ITEMS[input.id].icon} ${ITEMS[input.id].name}×${input.count}`).join(' + ');
+                card.innerHTML = `
+                    <div class="craft-title">
+                        <span>${ITEMS[recipe.output.id].icon} ${recipe.name}</span>
+                        <span>×${recipe.output.count}</span>
+                    </div>
+                    <div class="craft-recipe">${inputText}<br>${recipe.description}</div>
+                    <div class="craft-recipe" style="margin-top:6px;color:${unlocked ? '#8cffc8' : '#ffb86b'};">
+                        ${needsWorkbench ? (hasWorkbench ? '作業台で作成可能' : '作業台が必要') : '手作業で作成可能'}
+                    </div>
+                `;
+                if (!unlocked) card.style.opacity = '0.6';
+                card.addEventListener('click', () => {
+                    if (!unlocked) {
+                        selectedRecipeId = recipe.id;
+                        renderCraftingUI();
+                        showToast('作業台が必要です');
+                        return;
+                    }
+                    selectedRecipeId = recipe.id;
+                    renderCraftingUI();
+                });
+                craftList.appendChild(card);
+            });
+
+            const recipe = CRAFTING_RECIPES.find(entry => entry.id === selectedRecipeId);
+            const canCraft = !!recipe && (gameMode === 'creative' || hasRecipeMaterials(recipe)) && (!recipe.station || hasWorkbench || gameMode === 'creative');
+            craftButton.textContent = recipe ? `作成：${ITEMS[recipe.output.id].name}` : '作成';
+            craftButton.disabled = !recipe || (!canCraft && gameMode !== 'creative');
+        }
+
+        function swapItemBagToHotbar(bagIdx) {
+            const bagItem = playerInventory.bag[bagIdx];
+            if (!bagItem) return;
+
+            const hotbarIdx = playerInventory.activeSlot;
+            const hotbarItem = playerInventory.hotbar[hotbarIdx];
+
+            playerInventory.bag[bagIdx] = hotbarItem;
+            playerInventory.hotbar[hotbarIdx] = bagItem;
+
+            updateHotbarUI();
+            renderInventoryGrid();
+        }
+
+        function moveHotbarToBag(hotbarIdx) {
+            const item = playerInventory.hotbar[hotbarIdx];
+            if (!item) return;
+
+            for (let i = 0; i < playerInventory.bag.length; i++) {
+                if (!playerInventory.bag[i]) {
+                    playerInventory.bag[i] = item;
+                    playerInventory.hotbar[hotbarIdx] = null;
+                    return;
+                }
+            }
+            showToast("🎒 バックパックに空きがありません！");
+        }
+
+        function updateSurvivalStatusHUD() {
+            document.getElementById('hp-val').textContent = Math.round(survivalStats.hp);
+            document.getElementById('hunger-val').textContent = Math.round(survivalStats.hunger);
+            document.getElementById('oxygen-val').textContent = Math.round(survivalStats.oxygen);
+
+            const o2Bar = document.getElementById('oxygen-bar');
+            if (inWater) {
+                o2Bar.style.display = 'flex';
+            } else {
+                o2Bar.style.display = 'none';
+            }
+
+            if (biomeVal) {
+                const biome = getBiomeAt(camera.position.x, camera.position.z).type;
+                biomeVal.textContent = biome === 'mountain' ? '山地' : biome === 'cave' ? '洞窟帯' : biome === 'dry' ? '乾燥地' : '平原';
+            }
+        }
+
+        function scanNearbyBiomes() {
+            const originX = camera.position.x;
+            const originZ = camera.position.z;
+            const checks = [
+                { dx: 0, dz: 0, label: '現在地' },
+                { dx: 60, dz: 0, label: '東' },
+                { dx: -60, dz: 0, label: '西' },
+                { dx: 0, dz: 60, label: '南' },
+                { dx: 0, dz: -60, label: '北' },
+                { dx: 120, dz: 0, label: '東遠' },
+                { dx: -120, dz: 0, label: '西遠' },
+                { dx: 0, dz: 120, label: '南遠' },
+                { dx: 0, dz: -120, label: '北遠' }
+            ];
+            let best = null;
+            for (const check of checks) {
+                const biome = getBiomeAt(originX + check.dx, originZ + check.dz).type;
+                if (biome === 'mountain' || biome === 'cave') {
+                    const dist = Math.sqrt(check.dx * check.dx + check.dz * check.dz);
+                    if (!best || dist < best.dist) best = { ...check, biome, dist };
+                }
+            }
+            return best;
+        }
+
+        function showToast(text) {
+            const area = document.getElementById('popups');
+            const msg = document.createElement('div');
+            msg.className = 'pop-msg';
+            msg.textContent = text;
+            area.appendChild(msg);
+            setTimeout(() => msg.remove(), 2000);
+        }
+
+        // --- 9. アニメーション＆リアルレンダーループ ---
+        const clock = new THREE.Clock();
+
+        // ポインターロック状態のフラグ
+        let isPointerLocked = false;
+        
+        // ★修正: ポインターロック解除されても、ゲームプレイフラグが勝手にリセットされないよう制限！
+        // プレビュー等でポインターロックが解除されてもゲームは継続してそのままキーやマウスドラッグで進められます。
+        document.addEventListener('pointerlockchange', () => {
+            isPointerLocked = (document.pointerLockElement === document.body);
+            if (isPointerLocked) {
+                info.style.display = 'none';
+                hud.style.display = 'block';
+                crosshair.style.display = 'block';
+                btnBag.style.display = 'flex';
+                document.getElementById('hotbar-container').style.display = 'flex';
+                inventoryScreen.style.display = 'none';
+                isInventoryOpen = false;
+                isGamePlaying = true;
+            }
+        });
+
+        // ★スロット切り替えを確実に動作させるために、ホイールスクロールによる切り替えを新規実装！
+        window.addEventListener('wheel', (e) => {
+            if (!isGamePlaying || isInventoryOpen) return;
+            
+            // 下スクロールで次のスロット、上スクロールで前のスロットへ切り替え
+            let nextSlot = playerInventory.activeSlot;
+            if (e.deltaY > 0) {
+                nextSlot = (nextSlot + 1) % 5;
+            } else if (e.deltaY < 0) {
+                nextSlot = (nextSlot - 1 + 5) % 5;
+            }
+            setActiveSlot(nextSlot);
+        }, { passive: true });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = Math.min(clock.getDelta(), 0.1);
+            const elapsedTime = clock.getElapsedTime();
+            sharedUniforms.uTime.value = elapsedTime;
+
+            waterNormalMap.offset.x = elapsedTime * 0.02;
+            waterNormalMap.offset.y = elapsedTime * 0.015;
+
+            // ★ controls.isLocked のみによる判定から、ゲームプレイフラグ(isGamePlaying)を主体にした安全な状態管理に完全移行！
+            // ポインターロックが許可されなくても、ドラッグ視点移動とキー移動でそのまま遊べます。
+            if (isGamePlaying) {
+                const activeWaterY = getWaterHeightAt(camera.position.x, camera.position.z, elapsedTime);
+                const isUnderWater = camera.position.y < activeWaterY;
+                
+                const currentDepth = Math.max(0, activeWaterY - camera.position.y);
+                depthVal.textContent = currentDepth.toFixed(1);
+
+                // ==========================================
+                // ★ サバイバル時のステータス低下・ダメージ
+                // ==========================================
+                if (gameMode === 'survival') {
+                    if (isUnderWater) {
+                        survivalStats.oxygen = Math.max(0, survivalStats.oxygen - 12.0 * delta); 
+                        if (survivalStats.oxygen <= 0) {
+                            survivalStats.hp = Math.max(0, survivalStats.hp - 15.0 * delta); 
+                        }
+                    } else {
+                        survivalStats.oxygen = Math.min(100, survivalStats.oxygen + 100.0 * delta); 
+                    }
+
+                    survivalStats.hunger = Math.max(0, survivalStats.hunger - 0.7 * delta); 
+                    if (survivalStats.hunger <= 0) {
+                        survivalStats.hp = Math.max(0, survivalStats.hp - 3.0 * delta); 
+                    }
+
+                    if (survivalStats.hunger > 60 && survivalStats.oxygen > 0 && survivalStats.hp < 100) {
+                        survivalStats.hp = Math.min(100, survivalStats.hp + 2.0 * delta);
+                    }
+
+                    if (survivalStats.hp <= 0 && !survivalStats.isDead) {
+                        survivalStats.isDead = true;
+                        showToast("💀 力尽きてしまった！初期位置に復活します。");
+                        setTimeout(() => {
+                            const respos = findSafeSpawnPosition();
+                            camera.position.set(respos.x, respos.y + PLAYER_HEIGHT, respos.z);
+                            survivalStats.hp = 100;
+                            survivalStats.hunger = 100;
+                            survivalStats.oxygen = 100;
+                            survivalStats.isDead = false;
+                            updateSurvivalStatusHUD();
+                        }, 2000);
+                    }
+
+                    updateSurvivalStatusHUD();
+                }
+
+                // ==========================================
+                // ★ リアル水中環境ダイナミック検知システム
+                // ==========================================
+                if (isUnderWater) {
+                    if (!inWater) {
+                        inWater = true;
+                    }
+
+                    const depthRatio = Math.min(currentDepth / 22.0, 1.0); 
+                    const waterCurrentFogColor = new THREE.Color(WATER_FOG_COLOR).multiplyScalar(1.0 - depthRatio * 0.95);
+                    scene.fog.color.copy(waterCurrentFogColor);
+                    scene.background.copy(waterCurrentFogColor);
+                    
+                    scene.fog.density = 0.035 + (depthRatio * 0.12);
+                    sunLight.intensity = 4.5 * (1.0 - depthRatio * 0.98); // 明るさをキープ
+                    ambientLight.intensity = 1.2 * (1.0 - depthRatio * 0.8); // 明るさをキープ
+                    particleMat.opacity = 0.8 * (1.0 - depthRatio * 0.7);
+
+                } else {
+                    if (inWater) {
+                        inWater = false;
+                        
+                        scene.fog.color.setHex(AIR_FOG_COLOR);
+                        scene.background.setHex(AIR_FOG_COLOR);
+                        scene.fog.density = 0.015;
+
+                        sunLight.intensity = 4.5; 
+                        ambientLight.intensity = 1.2; 
+                        particleMat.opacity = 0.1; 
+                    }
+                }
+
+                // ==========================================
+                // ★ 状態(State)HUDテキストの動的更新
+                // ==========================================
+                if (gameMode === 'creative' && isFlying) {
+                    stateVal.textContent = "飛行中";
+                    stateVal.style.color = "#ff79c6";
+                } else if (isUnderWater) {
+                    stateVal.textContent = "水中潜水";
+                    stateVal.style.color = "#00c3ff";
+                } else {
+                    stateVal.textContent = "陸上";
+                    stateVal.style.color = "#00ff66";
+                }
+
+                const nearbyBiome = scanNearbyBiomes();
+                if (biomeVal) {
+                    if (nearbyBiome) {
+                        biomeVal.textContent = `${nearbyBiome.biome === 'mountain' ? '山地' : '洞窟'} / ${nearbyBiome.label} ${Math.round(nearbyBiome.dist)}m`;
+                        biomeVal.style.color = nearbyBiome.biome === 'mountain' ? '#b8b8b8' : '#9edcff';
+                    } else {
+                        biomeVal.textContent = '近くに山・洞窟なし';
+                        biomeVal.style.color = '#ffffff';
+                    }
+                }
+
+                // ==========================================
+                // ★ 照準レイキャスト検出の完全修正
+                // ==========================================
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects(harvestableObjects.concat(harvestableTreeMeshes, placedInteractables), true);
+
+                if (intersects.length > 0 && intersects[0].distance < 6.0) {
+                    let obj = intersects[0].object;
+                    
+                    // ヒットした最小単位のメッシュから、登録されている「採取可能オブジェクトのベース」を安全に探す
+                    let target = null;
+                    let current = obj;
+                    while (current && current !== scene) {
+                        if (harvestableObjects.includes(current)) {
+                            target = current;
+                            break;
+                        }
+                        current = current.parent;
+                    }
+
+                    if (obj.isInstancedMesh && intersects[0].instanceId !== undefined) {
+                        const mesh = intersects[0].object;
+                        const instanceId = intersects[0].instanceId;
+                        focusedObject = { mesh, instanceId, isInstancedTree: true };
+                        crosshair.classList.add('target-active');
+                        actionTip.style.display = 'block';
+                        actionTip.textContent = `🪓 ${mesh.userData?.treeData?.[instanceId]?.name || '大木'} (左クリック)`;
+                    } else if (obj.parent?.userData?.isPlacedChest || obj.userData?.isPlacedChest || obj.parent?.userData?.isPlacedWorkbench || obj.userData?.isPlacedWorkbench || obj.parent?.userData?.isPlacedFurnace || obj.userData?.isPlacedFurnace) {
+                        focusedObject = obj.parent?.userData?.isPlacedChest || obj.userData?.isPlacedChest ? (obj.parent?.userData?.isPlacedChest ? obj.parent : obj) :
+                                        obj.parent?.userData?.isPlacedFurnace || obj.userData?.isPlacedFurnace ? (obj.parent?.userData?.isPlacedFurnace ? obj.parent : obj) :
+                                        (obj.parent?.userData?.isPlacedWorkbench ? obj.parent : obj);
+                        crosshair.classList.add('target-active');
+                        actionTip.style.display = 'block';
+                        actionTip.textContent = focusedObject.userData.isPlacedChest ? '🧰 開く (右クリック)' : focusedObject.userData.isPlacedFurnace ? '🏺 開く (右クリック)' : '🛠️ 作業台';
+                    } else if (target && focusedObject !== target) {
+                        focusedObject = target;
+                        crosshair.classList.add('target-active');
+                        actionTip.style.display = 'block';
+                        actionTip.textContent = `🔨 ${target.userData.name || '採取する'} (左クリック)`;
+                    } else if (!target) {
+                        focusedObject = null;
+                        crosshair.classList.remove('target-active');
+                        actionTip.style.display = 'none';
+                    }
+                } else {
+                    focusedObject = null;
+                    crosshair.classList.remove('target-active');
+                    actionTip.style.display = 'none';
+                }
+
+                // ==========================================
+                // ★ 木の倒れるアニメーション
+                // ==========================================
+                for (let i = fallingTrees.length - 1; i >= 0; i--) {
+                    const fall = fallingTrees[i];
+                    const tree = fall.treeGroup;
+                    if (!tree || !tree.parent) {
+                        fallingTrees.splice(i, 1);
+                        continue;
+                    }
+
+                    const data = tree.userData;
+                    data.fallProgress = Math.min(1, data.fallProgress + delta * 0.75);
+                    const t = data.fallProgress;
+                    const ease = 1 - Math.pow(1 - t, 3);
+                    tree.rotation.z = fall.startRotation + fall.fallDirection * ease * (Math.PI / 2.1);
+                    tree.position.y = fall.groundY + Math.sin(ease * Math.PI) * 0.12;
+
+                    if (fall.leafBurst) {
+                        fall.leafBurst.rotation.x = -ease * 0.45;
+                        fall.leafBurst.position.y = 3.4 - ease * 1.2;
+                    }
+
+                    if (t >= 1) {
+                        data.fallen = true;
+                        data.falling = false;
+
+                        if (!data.rewardGiven) {
+                            data.rewardGiven = true;
+                            addItemToInventory('wood');
+                            showToast(`➕ ${ITEMS.wood.icon} ${ITEMS.wood.name} を獲得！`);
+                        }
+
+                        const stumpMat = new THREE.MeshStandardMaterial({ color: 0x6d4421, roughness: 1.0 });
+                        const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.55, 6), stumpMat);
+                        stump.position.set(tree.position.x, fall.groundY + 0.08, tree.position.z);
+                        stump.castShadow = true;
+                        stump.receiveShadow = true;
+                        scene.add(stump);
+
+                        setTimeout(() => {
+                            if (stump.parent) stump.parent.remove(stump);
+                        }, 12000);
+
+                        setTimeout(() => {
+                            if (tree.parent) tree.parent.remove(tree);
+                            fallingTrees.splice(i, 1);
+                        }, 1200);
+                    }
+                }
+
+                // ==========================================
+                // ★ 統一物理システム（陸上＆水中＆クリエイティブ飛行）
+                // ==========================================
+                const moveDirection = new THREE.Vector3();
+                const forward = new THREE.Vector3();
+                camera.getWorldDirection(forward);
+
+                const right = new THREE.Vector3();
+                right.crossVectors(forward, camera.up).normalize();
+
+                if (gameMode === 'creative' && isFlying) {
+                    const flySpeed = 45.0; 
+                    const flyBoost = keys.ctrl ? 1.65 : 1.0;
+                    const flyDrag = 6.0;   
+
+                    velocity.x -= velocity.x * flyDrag * delta;
+                    velocity.y -= velocity.y * flyDrag * delta;
+                    velocity.z -= velocity.z * flyDrag * delta;
+
+                    if (keys.w) velocity.addScaledVector(forward, flySpeed * flyBoost * delta);
+                    if (keys.s) velocity.addScaledVector(forward, -flySpeed * flyBoost * delta);
+                    if (keys.d) velocity.addScaledVector(right, flySpeed * flyBoost * delta);
+                    if (keys.a) velocity.addScaledVector(right, -flySpeed * flyBoost * delta);
+
+                    if (keys.space) velocity.y += flySpeed * 0.8 * flyBoost * delta;
+                    if (keys.shift) velocity.y -= flySpeed * 0.8 * flyBoost * delta;
+
+                    camera.position.addScaledVector(velocity, delta);
+
+                    const currentTerrainY = getTerrainHeight(camera.position.x, camera.position.z);
+                    const minHeight = currentTerrainY + 0.8;
+                    if (camera.position.y < minHeight) {
+                        camera.position.y = minHeight;
+                        velocity.y = 0;
+                    }
+
+                } else {
+                    if (inWater) {
+                        if (keys.w) moveDirection.add(forward);
+                        if (keys.s) moveDirection.sub(forward);
+                        if (keys.d) moveDirection.add(right);
+                        if (keys.a) moveDirection.sub(right);
+                        moveDirection.normalize();
+
+                        const swimAcceleration = 35.0;
+                        velocity.addScaledVector(moveDirection, swimAcceleration * delta);
+
+                        if (keys.space) velocity.y += 8.0 * delta;
+                        if (keys.shift) velocity.y -= 8.0 * delta;
+
+                        const waterDrag = 4.5;
+                        velocity.x -= velocity.x * waterDrag * delta;
+                        velocity.y -= velocity.y * waterDrag * delta;
+                        velocity.z -= velocity.z * waterDrag * delta;
+
+                        velocity.y -= WATER_GRAVITY * delta;
+                    } else {
+                        forward.y = 0;
+                        forward.normalize();
+
+                        if (keys.w) moveDirection.add(forward);
+                        if (keys.s) moveDirection.sub(forward);
+                        if (keys.d) moveDirection.add(right);
+                        if (keys.a) moveDirection.sub(right);
+                        moveDirection.normalize();
+
+                        const isCrouching = keys.shift;
+                        const isRunning = keys.ctrl && !isCrouching;
+                        const landAcceleration = isRunning ? 95.0 : (isCrouching ? 38.0 : 65.0);
+                        velocity.x += moveDirection.x * landAcceleration * delta;
+                        velocity.z += moveDirection.z * landAcceleration * delta;
+
+                        const landDrag = isRunning ? 7.0 : (isCrouching ? 11.5 : 8.5);
+                        velocity.x -= velocity.x * landDrag * delta;
+                        velocity.z -= velocity.z * landDrag * delta;
+
+                        if (!isGrounded) {
+                            velocity.y -= GRAVITY * delta;
+                        } else {
+                            velocity.y = 0;
+                            if (keys.space) {
+                                velocity.y = JUMP_FORCE;
+                                isGrounded = false;
+                            }
+                        }
+                    }
+
+                    camera.position.addScaledVector(velocity, delta);
+
+                    const currentTerrainY = getTerrainHeight(camera.position.x, camera.position.z);
+                    const groundHeight = currentTerrainY + PLAYER_HEIGHT;
+
+                    if (!inWater) {
+                        if (camera.position.y <= groundHeight) {
+                            camera.position.y = groundHeight;
+                            velocity.y = 0;
+                            isGrounded = true;
+                        } else {
+                            isGrounded = false;
+                        }
+                    } else {
+                        if (camera.position.y < groundHeight) {
+                            camera.position.y = groundHeight;
+                            velocity.y = 0;
+                        }
+                        isGrounded = false;
+                    }
+
+                    const crouchOffset = keys.shift ? -0.35 : 0;
+                    const targetEyeHeight = PLAYER_HEIGHT + crouchOffset;
+                    const desiredHeight = currentTerrainY + targetEyeHeight;
+                    if (camera.position.y < desiredHeight) {
+                        camera.position.y = desiredHeight;
+                    }
+                }
+
+                // マリンスノーのアニメーション＆追従
+                const currentTerrainY = getTerrainHeight(camera.position.x, camera.position.z);
+                const positions = particleGeo.attributes.position.array;
+                for (let i = 0; i < particleCount; i++) {
+                    const idx = i * 3;
+                    const speed = particleSpeeds[i];
+                    positions[idx] += speed.x + Math.sin(elapsedTime + speed.seed) * 0.01;
+                    positions[idx + 1] += speed.y; 
+                    positions[idx + 2] += speed.z + Math.cos(elapsedTime + speed.seed) * 0.01;
+
+                    const dx = positions[idx] - camera.position.x;
+                    const dy = positions[idx + 1] - camera.position.y;
+                    const dz = positions[idx + 2] - camera.position.z;
+                    const distSq = dx*dx + dy*dy + dz*dz;
+
+                    if (distSq > 2500 || positions[idx + 1] < currentTerrainY) {
+                        positions[idx] = camera.position.x + (Math.random() - 0.5) * 50;
+                        positions[idx + 1] = camera.position.y + (Math.random()) * 15 + 2;
+                        positions[idx + 2] = camera.position.z + (Math.random() - 0.5) * 50;
+                    }
+                }
+                particleGeo.attributes.position.needsUpdate = true;
+
+                updateChunks();
+            }
 
             renderer.render(scene, camera);
         }
         animate();
 
         window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
-
-        // --- タッチ操作サポート ---
-        const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
-        let touchActive = false;
-
-        // タッチ用のカメラ回転変数
-        let touchYaw = 0;
-        let touchPitch = 0;
-
-        if (isTouchDevice) {
-            // スタート画面のテキストをタッチ向けに変更
-            document.getElementById('start-hint').textContent = 'タップしてスタート';
-            document.getElementById('ctrl-hint').innerHTML =
-                '左：移動ジョイスティック ／ 右：視点ドラッグ ／ JUMPボタン：ジャンプ<br>' +
-                '風にそよぐ草、波打つ水面、太陽光と影のコントラスト。';
-
-            const touchUI = document.getElementById('touch-ui');
-            const info = document.getElementById('info');
-            const joystickZone = document.getElementById('joystick-zone');
-            const joystickKnob = document.getElementById('joystick-knob');
-            const lookZone = document.getElementById('look-zone');
-            const jumpBtn = document.getElementById('jump-btn');
-
-            const JOY_RADIUS = 38;
-
-            // タップでスタート（PointerLockなし）
-            info.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                touchActive = true;
-                info.style.display = 'none';
-                touchUI.style.display = 'block';
-
-                // カメラの初期yaw/pitchを現在の向きから取得
-                const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-                touchYaw = euler.y;
-                touchPitch = euler.x;
-            }, { passive: false });
-
-            // ジョイスティック
-            let joyTouchId = null;
-            let joyOriginX = 0, joyOriginY = 0;
-            const joyRect = () => joystickZone.getBoundingClientRect();
-
-            joystickZone.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                if (joyTouchId !== null) return;
-                const t = e.changedTouches[0];
-                joyTouchId = t.identifier;
-                const r = joyRect();
-                joyOriginX = r.left + r.width / 2;
-                joyOriginY = r.top + r.height / 2;
-            }, { passive: false });
-
-            joystickZone.addEventListener('touchmove', (e) => {
-                e.preventDefault();
-                for (const t of e.changedTouches) {
-                    if (t.identifier !== joyTouchId) continue;
-                    let dx = t.clientX - joyOriginX;
-                    let dy = t.clientY - joyOriginY;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    if (dist > JOY_RADIUS) { dx *= JOY_RADIUS / dist; dy *= JOY_RADIUS / dist; }
-                    joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
-                    const nx = dx / JOY_RADIUS;
-                    const ny = dy / JOY_RADIUS;
-                    const DEAD = 0.18;
-                    keys.w = ny < -DEAD; keys.s = ny > DEAD;
-                    keys.a = nx < -DEAD; keys.d = nx > DEAD;
-                }
-            }, { passive: false });
-
-            const resetJoy = (e) => {
-                for (const t of e.changedTouches) {
-                    if (t.identifier !== joyTouchId) continue;
-                    joyTouchId = null;
-                    joystickKnob.style.transform = 'translate(-50%, -50%)';
-                    keys.w = keys.s = keys.a = keys.d = false;
-                }
-            };
-            joystickZone.addEventListener('touchend', resetJoy, { passive: false });
-            joystickZone.addEventListener('touchcancel', resetJoy, { passive: false });
-
-            // 視点ドラッグ（右エリア）
-            let lookTouchId = null;
-            let lookLastX = 0, lookLastY = 0;
-            const LOOK_SENS = 0.004;
-            const PITCH_LIMIT = Math.PI / 2 - 0.05;
-
-            lookZone.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                if (lookTouchId !== null) return;
-                const t = e.changedTouches[0];
-                lookTouchId = t.identifier;
-                lookLastX = t.clientX;
-                lookLastY = t.clientY;
-            }, { passive: false });
-
-            lookZone.addEventListener('touchmove', (e) => {
-                e.preventDefault();
-                for (const t of e.changedTouches) {
-                    if (t.identifier !== lookTouchId) continue;
-                    const dx = t.clientX - lookLastX;
-                    const dy = t.clientY - lookLastY;
-                    lookLastX = t.clientX;
-                    lookLastY = t.clientY;
-                    touchYaw -= dx * LOOK_SENS;
-                    touchPitch -= dy * LOOK_SENS;
-                    touchPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, touchPitch));
-                    const euler = new THREE.Euler(touchPitch, touchYaw, 0, 'YXZ');
-                    camera.quaternion.setFromEuler(euler);
-                }
-            }, { passive: false });
-
-            const resetLook = (e) => {
-                for (const t of e.changedTouches) {
-                    if (t.identifier === lookTouchId) lookTouchId = null;
-                }
-            };
-            lookZone.addEventListener('touchend', resetLook, { passive: false });
-            lookZone.addEventListener('touchcancel', resetLook, { passive: false });
-
-            // ジャンプボタン
-            jumpBtn.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                keys.space = true;
-            }, { passive: false });
-            jumpBtn.addEventListener('touchend', (e) => {
-                e.preventDefault();
-                keys.space = false;
-            }, { passive: false });
-            jumpBtn.addEventListener('touchcancel', (e) => {
-                e.preventDefault();
-                keys.space = false;
-            }, { passive: false });
-        }
-
     </script>
 </body>
 </html>
