@@ -1038,10 +1038,11 @@
             const moisture = rawNoise(wsX * 0.035 + 120, wsZ * 0.035 - 80);
             const elevation = rawNoise(wsX * 0.018 - 40, wsZ * 0.018 + 70);
             const caveNoise = rawNoise(wsX * 0.05 + 10, wsZ * 0.05 - 10);
-            if (elevation > 0.28) return { type: 'mountain', density: 0.68, caveChance: 0.22, oreChance: 0.3 };
-            if (caveNoise > 0.34 && elevation > -0.08) return { type: 'cave', density: 0.12, caveChance: 0.08, oreChance: 0.34 };
-            if (moisture < -0.2) return { type: 'dry', density: 0.72, caveChance: 0.04, oreChance: 0.14 };
-            return { type: 'plains', density: 1.0, caveChance: 0.1, oreChance: 0.1 };
+            const caveBand = rawNoise(wsX * 0.015 + 240, wsZ * 0.015 - 140);
+            if (elevation > 0.28) return { type: 'mountain', density: 0.68, caveChance: 0.26, oreChance: 0.3 };
+            if ((caveNoise > 0.18 || caveBand > 0.22) && elevation > -0.14) return { type: 'cave', density: 0.22, caveChance: 0.26, oreChance: 0.4 };
+            if (moisture < -0.2) return { type: 'dry', density: 0.72, caveChance: 0.06, oreChance: 0.14 };
+            return { type: 'plains', density: 1.0, caveChance: 0.12, oreChance: 0.1 };
         }
 
         // シード値と適切な川の量を考慮した地形高低差計算
@@ -1077,8 +1078,10 @@
 
             if (biome.type === 'cave') {
                 const cavePocket = rawNoise(wsX * 0.08 + 200, wsZ * 0.08 - 200);
-                if (cavePocket > 0.05) terrain -= 18.0 + cavePocket * 4.0;
-                else terrain -= 10.0;
+                const caveRing = Math.abs(rawNoise(wsX * 0.03 + 80, wsZ * 0.03 - 80));
+                const caveDip = 14.0 + cavePocket * 8.0 + caveRing * 6.0;
+                terrain -= caveDip;
+                terrain = Math.min(terrain, baseHill - 6.0);
             }
 
             return terrain;
@@ -1544,17 +1547,21 @@
                 const caveY = getTerrainHeight(caveX, caveZ);
                 const caveGroup = new THREE.Group();
                 const rockMat = new THREE.MeshStandardMaterial({ color: 0x8a8a8a, roughness: 1.0 });
-                const chunk = new THREE.Mesh(new THREE.IcosahedronGeometry(1.45, 0), rockMat);
-                chunk.scale.set(1.4, 1.0, 1.1);
-                chunk.position.set(caveX, caveY + 0.9, caveZ);
+                const chunk = new THREE.Mesh(new THREE.IcosahedronGeometry(2.0, 0), rockMat);
+                chunk.scale.set(1.65, 1.15, 1.35);
+                chunk.position.set(caveX, caveY + 1.0, caveZ);
                 caveGroup.add(chunk);
-                const chunk2 = new THREE.Mesh(new THREE.IcosahedronGeometry(0.9, 0), rockMat);
-                chunk2.scale.set(1.0, 0.75, 0.9);
-                chunk2.position.set(caveX + 1.0, caveY + 0.65, caveZ - 0.45);
+                const chunk2 = new THREE.Mesh(new THREE.IcosahedronGeometry(1.15, 0), rockMat);
+                chunk2.scale.set(1.1, 0.8, 1.05);
+                chunk2.position.set(caveX + 1.2, caveY + 0.8, caveZ - 0.55);
                 caveGroup.add(chunk2);
-                const recess = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 8), new THREE.MeshBasicMaterial({ color: 0x1a1f24 }));
-                recess.scale.set(0.95, 0.7, 0.5);
-                recess.position.set(caveX - 0.35, caveY + 0.6, caveZ - 0.45);
+                const chunk3 = new THREE.Mesh(new THREE.IcosahedronGeometry(0.95, 0), rockMat);
+                chunk3.scale.set(0.95, 0.72, 0.82);
+                chunk3.position.set(caveX - 1.0, caveY + 0.55, caveZ + 0.25);
+                caveGroup.add(chunk3);
+                const recess = new THREE.Mesh(new THREE.SphereGeometry(0.9, 8, 8), new THREE.MeshBasicMaterial({ color: 0x080b10 }));
+                recess.scale.set(1.25, 0.95, 0.8);
+                recess.position.set(caveX - 0.2, caveY + 0.45, caveZ - 0.55);
                 caveGroup.add(recess);
                 caveGroup.userData = { debugCave: true };
                 chunkGroup.add(caveGroup);
@@ -1741,8 +1748,15 @@
             return { x: spawnX, y: spawnY, z: spawnZ };
         }
 
+        function setPlayerWorldPosition(x, y, z) {
+            camera.position.set(x, y, z);
+            if (controls && typeof controls.getObject === 'function') {
+                controls.getObject().position.set(x, y, z);
+            }
+        }
+
         const spawnPos = findSafeSpawnPosition();
-        camera.position.set(spawnPos.x, spawnPos.y + PLAYER_HEIGHT, spawnPos.z);
+        setPlayerWorldPosition(spawnPos.x, spawnPos.y + PLAYER_HEIGHT, spawnPos.z);
         updateChunks();
 
         // --- 7. 採取・インタラクションロジック ---
@@ -2012,40 +2026,40 @@
             const darkMat = new THREE.MeshStandardMaterial({ color: 0x121417, roughness: 1.0 });
             const accentMat = new THREE.MeshStandardMaterial({ color: 0x5e5a55, roughness: 1.0 });
 
-            const floor = new THREE.Mesh(new THREE.CylinderGeometry(7.5, 8.5, 1.5, 14, 1), accentMat);
-            floor.position.set(0, -2.0, 0);
+            const floor = new THREE.Mesh(new THREE.CylinderGeometry(9.5, 10.5, 1.7, 14, 1), accentMat);
+            floor.position.set(0, -2.3, 0);
             floor.rotation.z = Math.PI / 2;
             caveRoom.add(floor);
 
-            const ceiling = new THREE.Mesh(new THREE.SphereGeometry(7.8, 14, 10), wallMat);
-            ceiling.scale.set(1.4, 0.65, 1.3);
-            ceiling.position.set(0, 4.0, 0);
+            const ceiling = new THREE.Mesh(new THREE.SphereGeometry(8.6, 14, 10), wallMat);
+            ceiling.scale.set(1.7, 0.8, 1.6);
+            ceiling.position.set(0, 5.2, 0);
             caveRoom.add(ceiling);
 
-            const backWall = new THREE.Mesh(new THREE.SphereGeometry(5.4, 12, 10), wallMat);
-            backWall.scale.set(1.1, 0.95, 0.55);
-            backWall.position.set(0, 1.2, -5.5);
+            const backWall = new THREE.Mesh(new THREE.SphereGeometry(5.8, 12, 10), wallMat);
+            backWall.scale.set(1.15, 1.0, 0.55);
+            backWall.position.set(0, 1.3, -8.5);
             caveRoom.add(backWall);
 
-            const sideWallL = new THREE.Mesh(new THREE.SphereGeometry(5.0, 12, 10), wallMat);
-            sideWallL.scale.set(0.45, 1.0, 1.2);
-            sideWallL.position.set(-7.0, 0.8, 0.2);
+            const sideWallL = new THREE.Mesh(new THREE.SphereGeometry(5.2, 12, 10), wallMat);
+            sideWallL.scale.set(0.4, 1.0, 1.35);
+            sideWallL.position.set(-9.2, 0.8, 0.2);
             caveRoom.add(sideWallL);
 
-            const sideWallR = new THREE.Mesh(new THREE.SphereGeometry(5.0, 12, 10), wallMat);
-            sideWallR.scale.set(0.45, 1.0, 1.2);
-            sideWallR.position.set(7.0, 0.8, 0.2);
+            const sideWallR = new THREE.Mesh(new THREE.SphereGeometry(5.2, 12, 10), wallMat);
+            sideWallR.scale.set(0.4, 1.0, 1.35);
+            sideWallR.position.set(9.2, 0.8, 0.2);
             caveRoom.add(sideWallR);
 
-            const entranceTunnel = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.8, 8.0, 12), darkMat);
-            entranceTunnel.rotation.x = Math.PI / 2;
-            entranceTunnel.position.set(0, -0.2, 8.0);
-            caveRoom.add(entranceTunnel);
+            const frontWall = new THREE.Mesh(new THREE.SphereGeometry(5.5, 12, 10), darkMat);
+            frontWall.scale.set(1.25, 1.0, 0.45);
+            frontWall.position.set(0, 0.9, 8.4);
+            caveRoom.add(frontWall);
 
-            const exitTunnel = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.4, 8.0, 12), darkMat);
-            exitTunnel.rotation.x = Math.PI / 2;
-            exitTunnel.position.set(0, -0.2, -8.0);
-            caveRoom.add(exitTunnel);
+            const rearWall = new THREE.Mesh(new THREE.SphereGeometry(5.5, 12, 10), darkMat);
+            rearWall.scale.set(1.25, 1.0, 0.45);
+            rearWall.position.set(0, 0.9, -8.6);
+            caveRoom.add(rearWall);
 
             for (let i = 0; i < 8; i++) {
                 const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(0.8 + Math.random() * 0.7, 0), accentMat);
@@ -2077,12 +2091,12 @@
             scene.add(caveRoom);
             creativeCaveRooms.push(caveRoom);
 
-            camera.position.set(targetX, caveY + 0.8, targetZ + 2.5);
+            setPlayerWorldPosition(targetX, caveY + 0.8, targetZ + 2.5);
             velocity.set(0, 0, 0);
             isGrounded = false;
 
             scene.fog.color.setHex(0x071018);
-            scene.fog.density = 0.06;
+            scene.fog.density = 0.085;
             scene.background.setHex(0x071018);
 
             showToast('🕳️ 洞窟へ移動');
@@ -2817,7 +2831,7 @@
                         showToast("💀 力尽きてしまった！初期位置に復活します。");
                         setTimeout(() => {
                             const respos = findSafeSpawnPosition();
-                            camera.position.set(respos.x, respos.y + PLAYER_HEIGHT, respos.z);
+                            setPlayerWorldPosition(respos.x, respos.y + PLAYER_HEIGHT, respos.z);
                             survivalStats.hp = 100;
                             survivalStats.hunger = 100;
                             survivalStats.oxygen = 100;
